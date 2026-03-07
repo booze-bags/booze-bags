@@ -19,8 +19,14 @@
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
 
+  <!-- Firebase Storage -->
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-storage-compat.js"></script>
+
   <!-- SheetJS — Excel export -->
   <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+
+  <!-- JSZip — ZIP export -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 
   <!-- React + Babel -->
   <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
@@ -1018,7 +1024,27 @@ function TransactionsView({transactions, onAdd, onDelete, onUpdate, fixedExpense
 }
 
 // ── Bag Modal ──
-function BagModal({bag, bagIdx, orderId, orders, onSave, onClose}) {
+// ── Image helpers ──
+function compressImage(file, maxW=1400, quality=0.80) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      const ratio = Math.min(1, maxW / img.width, maxW / img.height);
+      const canvas = document.createElement('canvas');
+      canvas.width  = Math.round(img.width  * ratio);
+      canvas.height = Math.round(img.height * ratio);
+      canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+      URL.revokeObjectURL(url);
+      canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('compression failed')), 'image/jpeg', quality);
+    };
+    img.onerror = reject;
+    img.src = url;
+  });
+}
+function sanitizeFilename(s) { return (s||'').replace(/[/\\?%*:|"<>\s]/g,'_'); }
+
+function BagModal({bag, bagIdx, orderId, orders, onSave, onClose, storage}) {
   const isEdit = !!bag;
   const [f, setF] = useState(isEdit ? {
     orderId: orderId||'',
@@ -1035,17 +1061,44 @@ function BagModal({bag, bagIdx, orderId, orders, onSave, onClose}) {
   });
   const set = (k,v) => setF(p=>({...p,[k]:v}));
 
+  const [imageUrl, setImageUrl]   = useState(isEdit ? (bag.imageUrl||'') : '');
+  const [uploading, setUploading] = useState(false);
+  const [uploadPct, setUploadPct] = useState(0);
+  const fileInputRef = useRef(null);
+
+  const handleImagePick = async (e) => {
+    const file = e.target.files[0];
+    if (!file || !storage) return;
+    setUploading(true); setUploadPct(0);
+    try {
+      const compressed = await compressImage(file);
+      const path = `bags/${f.orderId||'unknown'}_bag${f.bagNum}_${Date.now()}.jpg`;
+      const ref   = storage.ref(path);
+      const task  = ref.put(compressed, {contentType:'image/jpeg'});
+      task.on('state_changed',
+        snap => setUploadPct(Math.round(snap.bytesTransferred / snap.totalBytes * 100)),
+        ()   => { alert('שגיאה בהעלאת התמונה'); setUploading(false); },
+        async () => {
+          const url = await task.snapshot.ref.getDownloadURL();
+          setImageUrl(url);
+          setUploading(false);
+        }
+      );
+    } catch { alert('שגיאה בדחיסת התמונה'); setUploading(false); }
+  };
+
   const handleSubmit = (e) => {
     e.preventDefault();
     if (!f.orderId) return;
     const bagData = {
-      bagNum: Number(f.bagNum)||1,
-      phraseA: f.phraseA.trim(),
+      bagNum:    Number(f.bagNum)||1,
+      phraseA:   f.phraseA.trim(),
       imageNumA: f.imageNumA.trim(),
-      namesB: f.namesB.trim(),
+      namesB:    f.namesB.trim(),
       cocktailB: f.cocktailB||'',
-      quantity: Number(f.quantity)||100,
+      quantity:  Number(f.quantity)||100,
       needsDate: !!f.needsDate,
+      imageUrl:  imageUrl||'',
     };
     onSave(f.orderId, bagIdx, bagData, isEdit);
   };
@@ -1088,10 +1141,48 @@ function BagModal({bag, bagIdx, orderId, orders, onSave, onClose}) {
                 <span className="flbl" style={{margin:0}}>צריך תאריך?</span>
               </label>
             </div>
+
+            {/* ── Image upload ── */}
+            <div className="fgroup" style={{gridColumn:'1/-1'}}>
+              <label className="flbl">📎 תמונת לקוח (לשליחה למפעל)</label>
+              <input ref={fileInputRef} type="file" accept="image/*" style={{display:'none'}} onChange={handleImagePick}/>
+              {imageUrl ? (
+                <div style={{display:'flex',alignItems:'center',gap:12,marginTop:6}}>
+                  <img src={imageUrl} alt="תמונת לקוח" style={{width:90,height:90,objectFit:'cover',borderRadius:8,border:'2px solid var(--gray-200)',cursor:'pointer'}} onClick={()=>window.open(imageUrl,'_blank')}/>
+                  <div style={{display:'flex',flexDirection:'column',gap:6}}>
+                    <button type="button" className="btn btn-outline btn-sm" onClick={()=>fileInputRef.current?.click()}>🔄 החלף תמונה</button>
+                    <button type="button" className="btn btn-sm" style={{background:'var(--red)',color:'#fff',border:'none'}} onClick={()=>setImageUrl('')}>🗑️ הסר</button>
+                  </div>
+                </div>
+              ) : (
+                <div
+                  onClick={()=>!uploading&&fileInputRef.current?.click()}
+                  style={{marginTop:6,border:'2px dashed var(--gray-300)',borderRadius:10,padding:'20px 0',textAlign:'center',cursor:uploading?'default':'pointer',color:'var(--gray-400)',fontSize:13,background:'var(--gray-50)',transition:'border-color .2s'}}
+                  onMouseEnter={e=>{if(!uploading)e.currentTarget.style.borderColor='var(--violet)'}}
+                  onMouseLeave={e=>e.currentTarget.style.borderColor='var(--gray-300)'}
+                >
+                  {uploading ? (
+                    <div>
+                      <div style={{fontSize:22,marginBottom:6}}>⏫</div>
+                      <div>מעלה תמונה… {uploadPct}%</div>
+                      <div style={{height:4,background:'var(--gray-200)',borderRadius:4,margin:'8px 24px 0',overflow:'hidden'}}>
+                        <div style={{height:'100%',width:`${uploadPct}%`,background:'var(--violet)',borderRadius:4,transition:'width .3s'}}/>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <div style={{fontSize:28,marginBottom:4}}>🖼️</div>
+                      <div>לחץ להעלאת תמונת לקוח</div>
+                      <div style={{fontSize:11,marginTop:2,color:'var(--gray-300)'}}>JPG / PNG · נדחסת אוטומטית</div>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
           <div className="form-actions">
             <button type="button" className="btn btn-gray" onClick={onClose}>ביטול</button>
-            <button type="submit" className="btn btn-pri">💾 שמור</button>
+            <button type="submit" className="btn btn-pri" disabled={uploading}>{uploading?'מעלה…':'💾 שמור'}</button>
           </div>
         </form>
       </div>
@@ -1100,10 +1191,11 @@ function BagModal({bag, bagIdx, orderId, orders, onSave, onClose}) {
 }
 
 // ── Bags View ──
-function BagsView({orders, onUpdateBag, onAddBag}) {
+function BagsView({orders, onUpdateBag, onAddBag, storage}) {
   const [filter, setFilter] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [editingBag, setEditingBag] = useState(null);   // {bag, bagIdx, orderId}
+  const [exporting, setExporting] = useState(false);
 
   const allBags = useMemo(() => {
     const result = [];
@@ -1130,55 +1222,90 @@ function BagsView({orders, onUpdateBag, onAddBag}) {
 
   const customers = useMemo(()=>[...new Set(allBags.map(b=>b.customerName).filter(Boolean))],[allBags]);
 
-  const exportToFactory = () => {
-    // מיין: תאריך אירוע → לקוח → מספר שקית
-    const rows = [...allBags].sort((a,b)=>{
-      const dateComp = (a.eventDate||'').localeCompare(b.eventDate||'');
-      if (dateComp!==0) return dateComp;
-      const nameComp = (a.customerName||'').localeCompare(b.customerName||'');
-      if (nameComp!==0) return nameComp;
-      return (Number(a.bagNum)||0) - (Number(b.bagNum)||0);
-    });
+  const exportToFactory = async () => {
+    setExporting(true);
+    try {
+      // מיין: תאריך אירוע → לקוח → שקית
+      const rows = [...allBags].sort((a,b)=>{
+        const dc = (a.eventDate||'').localeCompare(b.eventDate||'');
+        if (dc!==0) return dc;
+        const nc = (a.customerName||'').localeCompare(b.customerName||'');
+        if (nc!==0) return nc;
+        return (Number(a.bagNum)||0)-(Number(b.bagNum)||0);
+      });
 
-    // כותרות עמודות
-    const headers = ['לקוח','תאריך אירוע','שקית #','צד א — מלל','מספר תמונה','צד ב — שמות','קוקטייל','צריך תאריך?','כמות'];
+      const hasImages = rows.some(b=>b.imageUrl);
+      const today = new Date().toISOString().slice(0,10);
 
-    const data = [headers, ...rows.map(b => [
-      b.customerName||'',
-      b.eventDate ? new Date(b.eventDate).toLocaleDateString('he-IL',{day:'2-digit',month:'2-digit',year:'numeric'}) : '',
-      b.bagNum||'',
-      b.phraseA||'',
-      b.imageNumA||'',
-      b.namesB||'',
-      b.cocktailB||'',
-      b.needsDate ? 'כן' : 'לא',
-      Number(b.quantity)||0,
-    ])];
+      // ── בנה Excel ──
+      const headers = ['לקוח','תאריך אירוע','שקית #','צד א — מלל','מספר תמונה','צד ב — שמות','קוקטייל','צריך תאריך?','כמות',...(hasImages?['שם קובץ תמונה']:[])];
+      const imgNames = {};   // bagKey → filename
+      rows.forEach(b=>{
+        if (!b.imageUrl) return;
+        const key = `${b.orderId}_${b.bagNum}`;
+        imgNames[key] = `${sanitizeFilename(b.customerName)}-שקית${b.bagNum}.jpg`;
+      });
 
-    const ws = XLSX.utils.aoa_to_sheet(data);
+      const data = [headers, ...rows.map(b=>{
+        const key = `${b.orderId}_${b.bagNum}`;
+        return [
+          b.customerName||'',
+          b.eventDate ? new Date(b.eventDate).toLocaleDateString('he-IL',{day:'2-digit',month:'2-digit',year:'numeric'}) : '',
+          b.bagNum||'',
+          b.phraseA||'',
+          b.imageNumA||'',
+          b.namesB||'',
+          b.cocktailB||'',
+          b.needsDate?'כן':'לא',
+          Number(b.quantity)||0,
+          ...(hasImages ? [imgNames[key]||''] : []),
+        ];
+      })];
 
-    // רוחב עמודות
-    ws['!cols'] = [
-      {wch:20},{wch:14},{wch:8},{wch:30},{wch:12},{wch:30},{wch:16},{wch:12},{wch:8}
-    ];
+      const ws = XLSX.utils.aoa_to_sheet(data);
+      ws['!cols'] = [{wch:20},{wch:14},{wch:8},{wch:30},{wch:12},{wch:30},{wch:16},{wch:12},{wch:8},{wch:26}];
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'שקיות למפעל');
 
-    // כיוון RTL לגיליון
-    if (!ws['!sheetPr']) ws['!sheetPr'] = {};
-    ws['!sheetPr'].tabSelected = true;
+      if (!hasImages) {
+        // ─ ללא תמונות: פשוט xlsx ─
+        XLSX.writeFile(wb, `שקיות-למפעל-${today}.xlsx`);
+        return;
+      }
 
-    // עיצוב כותרת (bold) — SheetJS Community Edition
-    headers.forEach((_,ci)=>{
-      const cellRef = XLSX.utils.encode_cell({r:0,c:ci});
-      if (!ws[cellRef]) return;
-      if (!ws[cellRef].s) ws[cellRef].s = {};
-      ws[cellRef].s.font = {bold:true};
-    });
+      // ─ עם תמונות: ZIP ─
+      const zip = new JSZip();
+      const imgFolder = zip.folder('תמונות');
 
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'שקיות למפעל');
+      // הורד את כל התמונות במקביל
+      const fetches = rows
+        .filter(b=>b.imageUrl)
+        .map(async b=>{
+          const key = `${b.orderId}_${b.bagNum}`;
+          const fname = imgNames[key];
+          try {
+            const resp = await fetch(b.imageUrl);
+            if (!resp.ok) return;
+            const blob = await resp.blob();
+            imgFolder.file(fname, blob);
+          } catch { /* skip missing */ }
+        });
+      await Promise.all(fetches);
 
-    const today = new Date().toISOString().slice(0,10);
-    XLSX.writeFile(wb, `שקיות-למפעל-${today}.xlsx`);
+      // הוסף Excel לZIP
+      const excelBuf = XLSX.write(wb, {bookType:'xlsx', type:'array'});
+      zip.file(`שקיות-למפעל-${today}.xlsx`, excelBuf);
+
+      // הורד ZIP
+      const zipBlob = await zip.generateAsync({type:'blob',compression:'DEFLATE',compressionOptions:{level:6}});
+      const url = URL.createObjectURL(zipBlob);
+      const a = document.createElement('a');
+      a.href = url; a.download = `שקיות-למפעל-${today}.zip`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } finally {
+      setExporting(false);
+    }
   };
 
   const openAdd = () => { setEditingBag(null); setShowModal(true); };
@@ -1218,7 +1345,7 @@ function BagsView({orders, onUpdateBag, onAddBag}) {
         <span className="f-count">{filtered.length} שקיות</span>
         <div style={{marginRight:'auto',display:'flex',gap:8}}>
           <button className="btn btn-pri" style={{fontSize:13,padding:'6px 14px'}} onClick={openAdd}>+ הוסף שקית</button>
-          <button className="btn btn-outline" style={{fontSize:13,padding:'6px 14px',color:'var(--green)',borderColor:'var(--green)',fontWeight:700}} onClick={exportToFactory} title="ייצוא כל השקיות לקובץ Excel לשליחה למפעל">📤 ייצוא למפעל</button>
+          <button className="btn btn-outline" style={{fontSize:13,padding:'6px 14px',color:'var(--green)',borderColor:'var(--green)',fontWeight:700,opacity:exporting?0.6:1}} onClick={exportToFactory} disabled={exporting} title="ייצוא לקובץ (Excel + תמונות) לשליחה למפעל">{exporting?'⏳ מכין…':'📤 ייצוא למפעל'}</button>
         </div>
       </div>
       <div className="card">
@@ -1228,10 +1355,16 @@ function BagsView({orders, onUpdateBag, onAddBag}) {
         ) : (
           <div className="tbl-wrap">
             <table>
-              <thead><tr><th>זוג</th><th>שקית</th><th>צד א — מלל</th><th>מספר תמונה</th><th>צד ב — שמות</th><th>קוקטייל</th><th>צריך תאריך?</th><th>כמות</th><th>תאריך אירוע</th><th></th></tr></thead>
+              <thead><tr><th>תמונה</th><th>זוג</th><th>שקית</th><th>צד א — מלל</th><th>מספר תמונה</th><th>צד ב — שמות</th><th>קוקטייל</th><th>צריך תאריך?</th><th>כמות</th><th>תאריך אירוע</th><th></th></tr></thead>
               <tbody>
                 {filtered.map((bag,idx)=>(
                   <tr key={idx} style={{background:idx%2===0?'#fff':'var(--gray-50)'}}>
+                    <td style={{width:48,padding:'4px 8px'}}>
+                      {bag.imageUrl
+                        ? <img src={bag.imageUrl} alt="" style={{width:40,height:40,objectFit:'cover',borderRadius:6,border:'1.5px solid var(--gray-200)',cursor:'pointer',display:'block'}} onClick={()=>window.open(bag.imageUrl,'_blank')} title="לחץ לצפייה מלאה"/>
+                        : <span style={{fontSize:18,opacity:.3}}>🖼️</span>
+                      }
+                    </td>
                     <td className="td-b">{bag.customerName}</td>
                     <td className="td-c">{bag.bagNum}</td>
                     <td style={{maxWidth:220,fontSize:13}}>{bag.phraseA||'—'}</td>
@@ -1257,6 +1390,7 @@ function BagsView({orders, onUpdateBag, onAddBag}) {
           orders={orders}
           onSave={handleSave}
           onClose={handleClose}
+          storage={storage}
         />
       )}
     </div>
@@ -2016,11 +2150,14 @@ function PinGate({onUnlock}) {
 
 // ── Main App ──
 function App() {
-  const [db, setDb] = useState(() => {
+  const [db] = useState(() => {
     try {
       if (!firebase.apps.length) firebase.initializeApp(window.FIREBASE_CONFIG);
       return firebase.database();
     } catch(e) { return null; }
+  });
+  const [storage] = useState(() => {
+    try { return firebase.storage(); } catch(e) { return null; }
   });
   const [orders, setOrders] = useState([]);
   const [transactions, setTransactions] = useState([]);
@@ -2333,7 +2470,7 @@ function App() {
         {tab==='orders'    && <OrdersTable orders={filtered} allOrders={orders} filters={filters} onFilter={setFilters} onEdit={handleEdit} onDelete={handleDelete} onAdd={handleAdd} onQuickUpdate={handleQuickUpdate}/>}
         {tab==='monthly'   && <MonthlyStats orders={orders} transactions={transactions} settings={settings} onUpdateSettings={handleUpdateSettings} monthlyExpenses={monthlyExpenses} onAddMonthlyExpense={handleAddMonthlyExpense} onDeleteMonthlyExpense={handleDeleteMonthlyExpense} monthlySettings={monthlySettings} onUpdateMonthlySetting={handleUpdateMonthlySetting} onAddCostItem={handleAddMonthlyCostItem} onDeleteCostItem={handleDeleteMonthlyCostItem} fixedExpenses={fixedExpenses}/>}
         {tab==='calendar'  && <CalendarView orders={orders} calendarEvents={calendarEvents} onEdit={handleEdit} onAddCalEvent={handleAddCalEvent} onEditCalEvent={handleEditCalEvent} onDeleteCalEvent={handleDeleteCalEvent}/>}
-        {tab==='bags'      && <BagsView orders={orders} onUpdateBag={handleUpdateBag} onAddBag={handleAddBag}/>}
+        {tab==='bags'      && <BagsView orders={orders} onUpdateBag={handleUpdateBag} onAddBag={handleAddBag} storage={storage}/>}
         {tab==='delivery'  && <DeliveryView orders={orders} onQuickUpdate={handleQuickUpdate}/>}
         {tab==='finance'   && <TransactionsView transactions={transactions} onAdd={handleAddTransaction} onDelete={handleDeleteTransaction} onUpdate={handleUpdateTransaction} fixedExpenses={fixedExpenses} onAddFixedExpense={handleAddFixedExpense} onDeleteFixedExpense={handleDeleteFixedExpense}/>}
       </main>
