@@ -19,9 +19,6 @@
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
 
-  <!-- Firebase Storage -->
-  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-storage-compat.js"></script>
-
   <!-- SheetJS — Excel export -->
   <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
 
@@ -1025,7 +1022,8 @@ function TransactionsView({transactions, onAdd, onDelete, onUpdate, fixedExpense
 
 // ── Bag Modal ──
 // ── Image helpers ──
-function compressImage(file, maxW=1400, quality=0.80) {
+// מחזיר data URL (base64) — נשמר ישירות ב-Firebase RTDB, ללא Storage
+function compressImage(file, maxW=900, quality=0.72) {
   return new Promise((resolve, reject) => {
     const img = new Image();
     const url = URL.createObjectURL(file);
@@ -1036,15 +1034,16 @@ function compressImage(file, maxW=1400, quality=0.80) {
       canvas.height = Math.round(img.height * ratio);
       canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
       URL.revokeObjectURL(url);
-      canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('compression failed')), 'image/jpeg', quality);
+      resolve(canvas.toDataURL('image/jpeg', quality));
     };
     img.onerror = reject;
     img.src = url;
   });
 }
 function sanitizeFilename(s) { return (s||'').replace(/[/\\?%*:|"<>\s]/g,'_'); }
+function dataUrlToBase64(dataUrl) { return dataUrl.split(',')[1] || ''; }
 
-function BagModal({bag, bagIdx, orderId, orders, onSave, onClose, storage}) {
+function BagModal({bag, bagIdx, orderId, orders, onSave, onClose}) {
   const isEdit = !!bag;
   const [f, setF] = useState(isEdit ? {
     orderId: orderId||'',
@@ -1069,26 +1068,13 @@ function BagModal({bag, bagIdx, orderId, orders, onSave, onClose, storage}) {
   const handleImagePick = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
-    if (!storage) {
-      alert('⚠️ Firebase Storage לא מופעל.\n\nכנס ל-console.firebase.google.com → הפרויקט שלך → Build → Storage → Get started → Test mode → europe-west1');
-      return;
-    }
-    setUploading(true); setUploadPct(0);
+    setUploading(true); setUploadPct(30);
     try {
-      const compressed = await compressImage(file);
-      const path = `bags/${f.orderId||'unknown'}_bag${f.bagNum}_${Date.now()}.jpg`;
-      const ref   = storage.ref(path);
-      const task  = ref.put(compressed, {contentType:'image/jpeg'});
-      task.on('state_changed',
-        snap => setUploadPct(Math.round(snap.bytesTransferred / snap.totalBytes * 100)),
-        (err) => { console.error('Upload error:', err); alert(`שגיאה בהעלאה: ${err.code||err.message}`); setUploading(false); },
-        async () => {
-          const url = await task.snapshot.ref.getDownloadURL();
-          setImageUrl(url);
-          setUploading(false);
-        }
-      );
-    } catch(err) { console.error('Compress error:', err); alert(`שגיאה: ${err.message}`); setUploading(false); }
+      const dataUrl = await compressImage(file);
+      setUploadPct(100);
+      setImageUrl(dataUrl);
+    } catch(err) { console.error(err); alert(`שגיאה בעיבוד התמונה: ${err.message}`); }
+    finally { setUploading(false); setUploadPct(0); }
   };
 
   const handleSubmit = (e) => {
@@ -1195,7 +1181,7 @@ function BagModal({bag, bagIdx, orderId, orders, onSave, onClose, storage}) {
 }
 
 // ── Bags View ──
-function BagsView({orders, onUpdateBag, onAddBag, storage}) {
+function BagsView({orders, onUpdateBag, onAddBag}) {
   const [filter, setFilter] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [editingBag, setEditingBag] = useState(null);   // {bag, bagIdx, orderId}
@@ -1281,20 +1267,15 @@ function BagsView({orders, onUpdateBag, onAddBag, storage}) {
       const zip = new JSZip();
       const imgFolder = zip.folder('תמונות');
 
-      // הורד את כל התמונות במקביל
-      const fetches = rows
-        .filter(b=>b.imageUrl)
-        .map(async b=>{
-          const key = `${b.orderId}_${b.bagNum}`;
-          const fname = imgNames[key];
-          try {
-            const resp = await fetch(b.imageUrl);
-            if (!resp.ok) return;
-            const blob = await resp.blob();
-            imgFolder.file(fname, blob);
-          } catch { /* skip missing */ }
-        });
-      await Promise.all(fetches);
+      // הוסף תמונות מ-base64 data URL
+      rows.filter(b=>b.imageUrl).forEach(b=>{
+        const key = `${b.orderId}_${b.bagNum}`;
+        const fname = imgNames[key];
+        try {
+          const base64 = dataUrlToBase64(b.imageUrl);
+          if (base64) imgFolder.file(fname, base64, {base64:true});
+        } catch { /* skip */ }
+      });
 
       // הוסף Excel לZIP
       const excelBuf = XLSX.write(wb, {bookType:'xlsx', type:'array'});
@@ -1394,7 +1375,6 @@ function BagsView({orders, onUpdateBag, onAddBag, storage}) {
           orders={orders}
           onSave={handleSave}
           onClose={handleClose}
-          storage={storage}
         />
       )}
     </div>
@@ -1698,7 +1678,7 @@ function OrdersTable({orders, allOrders, filters, onFilter, onEdit, onDelete, on
 
 // ── Order Form ──
 const EMPTY = {customerName:'',phone:'',eventDate:'',eventType:'',eventLocation:'',bagCount:300,packagePrice:'',extras:'',status:'graphics',notes:'',advancePaid:false,balancePaid:false,cocktailTypes:[],closedBy:'',deliveryType:'',bags:[]};
-function OrderForm({order, onSave, onClose, storage}) {
+function OrderForm({order, onSave, onClose}) {
   const [f, setF] = useState(()=> order ? {
     customerName:order.customerName||'',
     phone:order.phone||'',
@@ -1728,27 +1708,16 @@ function OrderForm({order, onSave, onClose, storage}) {
   const handleBagImageUpload = async (idx, e) => {
     const file = e.target.files[0];
     if (!file) return;
-    if (!storage) {
-      alert('⚠️ Firebase Storage לא מופעל.\n\nכנס ל-console.firebase.google.com → הפרויקט שלך → Build → Storage → Get started → Test mode → europe-west1');
-      return;
-    }
     e.target.value = '';
-    setBagUpload(p=>({...p,[idx]:{uploading:true,pct:0}}));
+    setBagUpload(p=>({...p,[idx]:{uploading:true,pct:30}}));
     try {
-      const compressed = await compressImage(file);
-      const oid = order?.id || 'new';
-      const path = `bags/${oid}_bag${(f.bags[idx]?.bagNum||idx+1)}_${Date.now()}.jpg`;
-      const task = storage.ref(path).put(compressed, {contentType:'image/jpeg'});
-      task.on('state_changed',
-        snap => setBagUpload(p=>({...p,[idx]:{uploading:true,pct:Math.round(snap.bytesTransferred/snap.totalBytes*100)}})),
-        (err) => { console.error('Upload error:', err); alert(`שגיאה בהעלאה: ${err.code||err.message}`); setBagUpload(p=>({...p,[idx]:{uploading:false,pct:0}})); },
-        async () => {
-          const url = await task.snapshot.ref.getDownloadURL();
-          const b = [...f.bags]; b[idx] = {...b[idx], imageUrl:url}; set('bags',b);
-          setBagUpload(p=>({...p,[idx]:{uploading:false,pct:0}}));
-        }
-      );
-    } catch(err) { console.error('Compress error:', err); alert(`שגיאה: ${err.message}`); setBagUpload(p=>({...p,[idx]:{uploading:false,pct:0}})); }
+      const dataUrl = await compressImage(file);
+      const b = [...f.bags]; b[idx] = {...b[idx], imageUrl:dataUrl}; set('bags',b);
+      setBagUpload(p=>({...p,[idx]:{uploading:false,pct:0}}));
+    } catch(err) {
+      console.error(err); alert(`שגיאה בעיבוד התמונה: ${err.message}`);
+      setBagUpload(p=>({...p,[idx]:{uploading:false,pct:0}}));
+    }
   };
 
   const handleSubmit = (e) => {
@@ -2214,17 +2183,6 @@ function App() {
       return firebase.database();
     } catch(e) { return null; }
   });
-  const [storage] = useState(() => {
-    try {
-      if (typeof firebase.storage !== 'function') { console.warn('Firebase Storage SDK לא נטען'); return null; }
-      const s = firebase.storage();
-      console.log('✅ Firebase Storage מחובר:', s.app.options.storageBucket);
-      return s;
-    } catch(e) {
-      console.error('❌ Firebase Storage שגיאה באתחול:', e.message);
-      return null;
-    }
-  });
   const [orders, setOrders] = useState([]);
   const [transactions, setTransactions] = useState([]);
   const [calendarEvents, setCalendarEvents] = useState([]);
@@ -2536,12 +2494,12 @@ function App() {
         {tab==='orders'    && <OrdersTable orders={filtered} allOrders={orders} filters={filters} onFilter={setFilters} onEdit={handleEdit} onDelete={handleDelete} onAdd={handleAdd} onQuickUpdate={handleQuickUpdate}/>}
         {tab==='monthly'   && <MonthlyStats orders={orders} transactions={transactions} settings={settings} onUpdateSettings={handleUpdateSettings} monthlyExpenses={monthlyExpenses} onAddMonthlyExpense={handleAddMonthlyExpense} onDeleteMonthlyExpense={handleDeleteMonthlyExpense} monthlySettings={monthlySettings} onUpdateMonthlySetting={handleUpdateMonthlySetting} onAddCostItem={handleAddMonthlyCostItem} onDeleteCostItem={handleDeleteMonthlyCostItem} fixedExpenses={fixedExpenses}/>}
         {tab==='calendar'  && <CalendarView orders={orders} calendarEvents={calendarEvents} onEdit={handleEdit} onAddCalEvent={handleAddCalEvent} onEditCalEvent={handleEditCalEvent} onDeleteCalEvent={handleDeleteCalEvent}/>}
-        {tab==='bags'      && <BagsView orders={orders} onUpdateBag={handleUpdateBag} onAddBag={handleAddBag} storage={storage}/>}
+        {tab==='bags'      && <BagsView orders={orders} onUpdateBag={handleUpdateBag} onAddBag={handleAddBag}/>}
         {tab==='delivery'  && <DeliveryView orders={orders} onQuickUpdate={handleQuickUpdate}/>}
         {tab==='finance'   && <TransactionsView transactions={transactions} onAdd={handleAddTransaction} onDelete={handleDeleteTransaction} onUpdate={handleUpdateTransaction} fixedExpenses={fixedExpenses} onAddFixedExpense={handleAddFixedExpense} onDeleteFixedExpense={handleDeleteFixedExpense}/>}
       </main>
 
-      {showForm && <OrderForm order={editing} onSave={handleSave} onClose={handleClose} storage={storage}/>}
+      {showForm && <OrderForm order={editing} onSave={handleSave} onClose={handleClose}/>}
     </div>
   );
 }
