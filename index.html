@@ -19,6 +19,9 @@
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
 
+  <!-- SheetJS — Excel export -->
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+
   <!-- React + Babel -->
   <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
@@ -1127,6 +1130,57 @@ function BagsView({orders, onUpdateBag, onAddBag}) {
 
   const customers = useMemo(()=>[...new Set(allBags.map(b=>b.customerName).filter(Boolean))],[allBags]);
 
+  const exportToFactory = () => {
+    // מיין: תאריך אירוע → לקוח → מספר שקית
+    const rows = [...allBags].sort((a,b)=>{
+      const dateComp = (a.eventDate||'').localeCompare(b.eventDate||'');
+      if (dateComp!==0) return dateComp;
+      const nameComp = (a.customerName||'').localeCompare(b.customerName||'');
+      if (nameComp!==0) return nameComp;
+      return (Number(a.bagNum)||0) - (Number(b.bagNum)||0);
+    });
+
+    // כותרות עמודות
+    const headers = ['לקוח','תאריך אירוע','שקית #','צד א — מלל','מספר תמונה','צד ב — שמות','קוקטייל','צריך תאריך?','כמות'];
+
+    const data = [headers, ...rows.map(b => [
+      b.customerName||'',
+      b.eventDate ? new Date(b.eventDate).toLocaleDateString('he-IL',{day:'2-digit',month:'2-digit',year:'numeric'}) : '',
+      b.bagNum||'',
+      b.phraseA||'',
+      b.imageNumA||'',
+      b.namesB||'',
+      b.cocktailB||'',
+      b.needsDate ? 'כן' : 'לא',
+      Number(b.quantity)||0,
+    ])];
+
+    const ws = XLSX.utils.aoa_to_sheet(data);
+
+    // רוחב עמודות
+    ws['!cols'] = [
+      {wch:20},{wch:14},{wch:8},{wch:30},{wch:12},{wch:30},{wch:16},{wch:12},{wch:8}
+    ];
+
+    // כיוון RTL לגיליון
+    if (!ws['!sheetPr']) ws['!sheetPr'] = {};
+    ws['!sheetPr'].tabSelected = true;
+
+    // עיצוב כותרת (bold) — SheetJS Community Edition
+    headers.forEach((_,ci)=>{
+      const cellRef = XLSX.utils.encode_cell({r:0,c:ci});
+      if (!ws[cellRef]) return;
+      if (!ws[cellRef].s) ws[cellRef].s = {};
+      ws[cellRef].s.font = {bold:true};
+    });
+
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'שקיות למפעל');
+
+    const today = new Date().toISOString().slice(0,10);
+    XLSX.writeFile(wb, `שקיות-למפעל-${today}.xlsx`);
+  };
+
   const openAdd = () => { setEditingBag(null); setShowModal(true); };
   const openEdit = (bag) => { setEditingBag({bag, bagIdx:bag._bagIdx, orderId:bag.orderId}); setShowModal(true); };
   const handleClose = () => { setShowModal(false); setEditingBag(null); };
@@ -1162,7 +1216,10 @@ function BagsView({orders, onUpdateBag, onAddBag}) {
           {customers.map(c=><option key={c} value={c}>{c}</option>)}
         </select>
         <span className="f-count">{filtered.length} שקיות</span>
-        <button className="btn btn-pri" style={{marginRight:'auto',fontSize:13,padding:'6px 14px'}} onClick={openAdd}>+ הוסף שקית</button>
+        <div style={{marginRight:'auto',display:'flex',gap:8}}>
+          <button className="btn btn-pri" style={{fontSize:13,padding:'6px 14px'}} onClick={openAdd}>+ הוסף שקית</button>
+          <button className="btn btn-outline" style={{fontSize:13,padding:'6px 14px',color:'var(--green)',borderColor:'var(--green)',fontWeight:700}} onClick={exportToFactory} title="ייצוא כל השקיות לקובץ Excel לשליחה למפעל">📤 ייצוא למפעל</button>
+        </div>
       </div>
       <div className="card">
         <div className="card-hdr"><span className="card-title">🛍️ פירוט שקיות לגרפיקה</span><span style={{fontSize:12,color:'var(--gray-400)'}}>{allBags.length} שקיות סה״כ</span></div>
