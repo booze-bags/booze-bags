@@ -1694,7 +1694,7 @@ function OrdersTable({orders, allOrders, filters, onFilter, onEdit, onDelete, on
 
 // ── Order Form ──
 const EMPTY = {customerName:'',phone:'',eventDate:'',eventType:'',eventLocation:'',bagCount:300,packagePrice:'',extras:'',status:'graphics',notes:'',advancePaid:false,balancePaid:false,cocktailTypes:[],closedBy:'',deliveryType:'',bags:[]};
-function OrderForm({order, onSave, onClose}) {
+function OrderForm({order, onSave, onClose, storage}) {
   const [f, setF] = useState(()=> order ? {
     customerName:order.customerName||'',
     phone:order.phone||'',
@@ -1718,6 +1718,30 @@ function OrderForm({order, onSave, onClose}) {
   const rev = (Number(f.packagePrice)||0) + (Number(f.extras)||0);
   const cost = (Number(f.bagCount)||0) * BAG_COST_PER_UNIT;
   const prof = rev - cost;
+
+  // ── Image upload per bag ──
+  const [bagUpload, setBagUpload] = useState({}); // {idx: {uploading, pct}}
+  const handleBagImageUpload = async (idx, e) => {
+    const file = e.target.files[0];
+    if (!file || !storage) return;
+    e.target.value = '';
+    setBagUpload(p=>({...p,[idx]:{uploading:true,pct:0}}));
+    try {
+      const compressed = await compressImage(file);
+      const oid = order?.id || 'new';
+      const path = `bags/${oid}_bag${(f.bags[idx]?.bagNum||idx+1)}_${Date.now()}.jpg`;
+      const task = storage.ref(path).put(compressed, {contentType:'image/jpeg'});
+      task.on('state_changed',
+        snap => setBagUpload(p=>({...p,[idx]:{uploading:true,pct:Math.round(snap.bytesTransferred/snap.totalBytes*100)}})),
+        ()   => { alert('שגיאה בהעלאה'); setBagUpload(p=>({...p,[idx]:{uploading:false,pct:0}})); },
+        async () => {
+          const url = await task.snapshot.ref.getDownloadURL();
+          const b = [...f.bags]; b[idx] = {...b[idx], imageUrl:url}; set('bags',b);
+          setBagUpload(p=>({...p,[idx]:{uploading:false,pct:0}}));
+        }
+      );
+    } catch { alert('שגיאה בדחיסה'); setBagUpload(p=>({...p,[idx]:{uploading:false,pct:0}})); }
+  };
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -1820,6 +1844,32 @@ function OrderForm({order, onSave, onClose}) {
                             {bag.needsDate?'✅ כן — יש תאריך':'❌ לא — ללא תאריך'}
                           </button>
                         </div>
+                      </div>
+
+                      {/* ── תמונת לקוח ── */}
+                      <div style={{marginTop:10,paddingTop:10,borderTop:'1px dashed var(--gray-200)'}}>
+                        <input type="file" accept="image/*" id={`bag-img-${idx}`} style={{display:'none'}} onChange={e=>handleBagImageUpload(idx,e)}/>
+                        <label className="flbl" style={{fontSize:11,marginBottom:6,display:'block'}}>📎 תמונת לקוח</label>
+                        {bag.imageUrl ? (
+                          <div style={{display:'flex',alignItems:'center',gap:10}}>
+                            <img src={bag.imageUrl} alt="" style={{width:64,height:64,objectFit:'cover',borderRadius:8,border:'2px solid var(--gray-200)',cursor:'pointer'}} onClick={()=>window.open(bag.imageUrl,'_blank')} title="לחץ לצפייה מלאה"/>
+                            <div style={{display:'flex',flexDirection:'column',gap:5}}>
+                              <button type="button" className="btn btn-outline btn-sm" style={{fontSize:11}} onClick={()=>document.getElementById(`bag-img-${idx}`)?.click()}>🔄 החלף</button>
+                              <button type="button" className="btn btn-sm" style={{fontSize:11,background:'var(--red)',color:'#fff',border:'none'}} onClick={()=>{const b=[...f.bags];b[idx]={...b[idx],imageUrl:''};set('bags',b);}}>🗑️ הסר</button>
+                            </div>
+                          </div>
+                        ) : bagUpload[idx]?.uploading ? (
+                          <div style={{fontSize:12,color:'var(--gray-500)'}}>
+                            ⏫ מעלה… {bagUpload[idx].pct}%
+                            <div style={{height:3,background:'var(--gray-200)',borderRadius:3,marginTop:4,overflow:'hidden'}}>
+                              <div style={{height:'100%',width:`${bagUpload[idx].pct}%`,background:'var(--violet)',transition:'width .3s'}}/>
+                            </div>
+                          </div>
+                        ) : (
+                          <button type="button" className="btn btn-outline btn-sm" style={{fontSize:11,color:'var(--gray-500)',borderStyle:'dashed'}} onClick={()=>document.getElementById(`bag-img-${idx}`)?.click()}>
+                            🖼️ הוסף תמונת לקוח
+                          </button>
+                        )}
                       </div>
                     </div>
                   ))}
@@ -2475,7 +2525,7 @@ function App() {
         {tab==='finance'   && <TransactionsView transactions={transactions} onAdd={handleAddTransaction} onDelete={handleDeleteTransaction} onUpdate={handleUpdateTransaction} fixedExpenses={fixedExpenses} onAddFixedExpense={handleAddFixedExpense} onDeleteFixedExpense={handleDeleteFixedExpense}/>}
       </main>
 
-      {showForm && <OrderForm order={editing} onSave={handleSave} onClose={handleClose}/>}
+      {showForm && <OrderForm order={editing} onSave={handleSave} onClose={handleClose} storage={storage}/>}
     </div>
   );
 }
