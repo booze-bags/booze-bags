@@ -1068,7 +1068,11 @@ function BagModal({bag, bagIdx, orderId, orders, onSave, onClose, storage}) {
 
   const handleImagePick = async (e) => {
     const file = e.target.files[0];
-    if (!file || !storage) return;
+    if (!file) return;
+    if (!storage) {
+      alert('⚠️ Firebase Storage לא מופעל.\n\nכנס ל-console.firebase.google.com → הפרויקט שלך → Build → Storage → Get started → Test mode → europe-west1');
+      return;
+    }
     setUploading(true); setUploadPct(0);
     try {
       const compressed = await compressImage(file);
@@ -1077,14 +1081,14 @@ function BagModal({bag, bagIdx, orderId, orders, onSave, onClose, storage}) {
       const task  = ref.put(compressed, {contentType:'image/jpeg'});
       task.on('state_changed',
         snap => setUploadPct(Math.round(snap.bytesTransferred / snap.totalBytes * 100)),
-        ()   => { alert('שגיאה בהעלאת התמונה'); setUploading(false); },
+        (err) => { console.error('Upload error:', err); alert(`שגיאה בהעלאה: ${err.code||err.message}`); setUploading(false); },
         async () => {
           const url = await task.snapshot.ref.getDownloadURL();
           setImageUrl(url);
           setUploading(false);
         }
       );
-    } catch { alert('שגיאה בדחיסת התמונה'); setUploading(false); }
+    } catch(err) { console.error('Compress error:', err); alert(`שגיאה: ${err.message}`); setUploading(false); }
   };
 
   const handleSubmit = (e) => {
@@ -1723,7 +1727,11 @@ function OrderForm({order, onSave, onClose, storage}) {
   const [bagUpload, setBagUpload] = useState({}); // {idx: {uploading, pct}}
   const handleBagImageUpload = async (idx, e) => {
     const file = e.target.files[0];
-    if (!file || !storage) return;
+    if (!file) return;
+    if (!storage) {
+      alert('⚠️ Firebase Storage לא מופעל.\n\nכנס ל-console.firebase.google.com → הפרויקט שלך → Build → Storage → Get started → Test mode → europe-west1');
+      return;
+    }
     e.target.value = '';
     setBagUpload(p=>({...p,[idx]:{uploading:true,pct:0}}));
     try {
@@ -1733,14 +1741,14 @@ function OrderForm({order, onSave, onClose, storage}) {
       const task = storage.ref(path).put(compressed, {contentType:'image/jpeg'});
       task.on('state_changed',
         snap => setBagUpload(p=>({...p,[idx]:{uploading:true,pct:Math.round(snap.bytesTransferred/snap.totalBytes*100)}})),
-        ()   => { alert('שגיאה בהעלאה'); setBagUpload(p=>({...p,[idx]:{uploading:false,pct:0}})); },
+        (err) => { console.error('Upload error:', err); alert(`שגיאה בהעלאה: ${err.code||err.message}`); setBagUpload(p=>({...p,[idx]:{uploading:false,pct:0}})); },
         async () => {
           const url = await task.snapshot.ref.getDownloadURL();
           const b = [...f.bags]; b[idx] = {...b[idx], imageUrl:url}; set('bags',b);
           setBagUpload(p=>({...p,[idx]:{uploading:false,pct:0}}));
         }
       );
-    } catch { alert('שגיאה בדחיסה'); setBagUpload(p=>({...p,[idx]:{uploading:false,pct:0}})); }
+    } catch(err) { console.error('Compress error:', err); alert(`שגיאה: ${err.message}`); setBagUpload(p=>({...p,[idx]:{uploading:false,pct:0}})); }
   };
 
   const handleSubmit = (e) => {
@@ -2207,7 +2215,15 @@ function App() {
     } catch(e) { return null; }
   });
   const [storage] = useState(() => {
-    try { return firebase.storage(); } catch(e) { return null; }
+    try {
+      if (typeof firebase.storage !== 'function') { console.warn('Firebase Storage SDK לא נטען'); return null; }
+      const s = firebase.storage();
+      console.log('✅ Firebase Storage מחובר:', s.app.options.storageBucket);
+      return s;
+    } catch(e) {
+      console.error('❌ Firebase Storage שגיאה באתחול:', e.message);
+      return null;
+    }
   });
   const [orders, setOrders] = useState([]);
   const [transactions, setTransactions] = useState([]);
