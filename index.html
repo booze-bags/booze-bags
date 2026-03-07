@@ -1043,6 +1043,22 @@ function compressImage(file, maxW=900, quality=0.72) {
 function sanitizeFilename(s) { return (s||'').replace(/[/\\?%*:|"<>\s]/g,'_'); }
 function dataUrlToBase64(dataUrl) { return dataUrl.split(',')[1] || ''; }
 
+// Lightbox — פותח תמונה בתצוגה מלאה (עובד עם data URL)
+function openImage(src) {
+  const ov = document.createElement('div');
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.92);display:flex;align-items:center;justify-content:center;z-index:10000;cursor:zoom-out';
+  const img = document.createElement('img');
+  img.src = src;
+  img.style.cssText = 'max-width:92vw;max-height:92vh;object-fit:contain;border-radius:10px;box-shadow:0 8px 40px rgba(0,0,0,.6)';
+  const x = document.createElement('div');
+  x.textContent = '✕';
+  x.style.cssText = 'position:absolute;top:18px;right:22px;color:#fff;font-size:30px;cursor:pointer;line-height:1;user-select:none';
+  const rm = () => ov.remove();
+  ov.onclick = rm; img.onclick = e => e.stopPropagation(); x.onclick = rm;
+  ov.appendChild(img); ov.appendChild(x);
+  document.body.appendChild(ov);
+}
+
 function BagModal({bag, bagIdx, orderId, orders, onSave, onClose}) {
   const isEdit = !!bag;
   const [f, setF] = useState(isEdit ? {
@@ -1138,7 +1154,7 @@ function BagModal({bag, bagIdx, orderId, orders, onSave, onClose}) {
               <input ref={fileInputRef} type="file" accept="image/*" style={{display:'none'}} onChange={handleImagePick}/>
               {imageUrl ? (
                 <div style={{display:'flex',alignItems:'center',gap:12,marginTop:6}}>
-                  <img src={imageUrl} alt="תמונת לקוח" style={{width:90,height:90,objectFit:'cover',borderRadius:8,border:'2px solid var(--gray-200)',cursor:'pointer'}} onClick={()=>window.open(imageUrl,'_blank')}/>
+                  <img src={imageUrl} alt="תמונת לקוח" style={{width:90,height:90,objectFit:'cover',borderRadius:8,border:'2px solid var(--gray-200)',cursor:'pointer'}} onClick={()=>openImage(imageUrl)}/>
                   <div style={{display:'flex',flexDirection:'column',gap:6}}>
                     <button type="button" className="btn btn-outline btn-sm" onClick={()=>fileInputRef.current?.click()}>🔄 החלף תמונה</button>
                     <button type="button" className="btn btn-sm" style={{background:'var(--red)',color:'#fff',border:'none'}} onClick={()=>setImageUrl('')}>🗑️ הסר</button>
@@ -1346,7 +1362,7 @@ function BagsView({orders, onUpdateBag, onAddBag}) {
                   <tr key={idx} style={{background:idx%2===0?'#fff':'var(--gray-50)'}}>
                     <td style={{width:48,padding:'4px 8px'}}>
                       {bag.imageUrl
-                        ? <img src={bag.imageUrl} alt="" style={{width:40,height:40,objectFit:'cover',borderRadius:6,border:'1.5px solid var(--gray-200)',cursor:'pointer',display:'block'}} onClick={()=>window.open(bag.imageUrl,'_blank')} title="לחץ לצפייה מלאה"/>
+                        ? <img src={bag.imageUrl} alt="" style={{width:40,height:40,objectFit:'cover',borderRadius:6,border:'1.5px solid var(--gray-200)',cursor:'pointer',display:'block'}} onClick={()=>openImage(bag.imageUrl)} title="לחץ לצפייה מלאה"/>
                         : <span style={{fontSize:18,opacity:.3}}>🖼️</span>
                       }
                     </td>
@@ -1829,7 +1845,7 @@ function OrderForm({order, onSave, onClose}) {
                         <label className="flbl" style={{fontSize:11,marginBottom:6,display:'block'}}>📎 תמונת לקוח</label>
                         {bag.imageUrl ? (
                           <div style={{display:'flex',alignItems:'center',gap:10}}>
-                            <img src={bag.imageUrl} alt="" style={{width:64,height:64,objectFit:'cover',borderRadius:8,border:'2px solid var(--gray-200)',cursor:'pointer'}} onClick={()=>window.open(bag.imageUrl,'_blank')} title="לחץ לצפייה מלאה"/>
+                            <img src={bag.imageUrl} alt="" style={{width:64,height:64,objectFit:'cover',borderRadius:8,border:'2px solid var(--gray-200)',cursor:'pointer'}} onClick={()=>openImage(bag.imageUrl)} title="לחץ לצפייה מלאה"/>
                             <div style={{display:'flex',flexDirection:'column',gap:5}}>
                               <button type="button" className="btn btn-outline btn-sm" style={{fontSize:11}} onClick={()=>document.getElementById(`bag-img-${idx}`)?.click()}>🔄 החלף</button>
                               <button type="button" className="btn btn-sm" style={{fontSize:11,background:'var(--red)',color:'#fff',border:'none'}} onClick={()=>{const b=[...f.bags];b[idx]={...b[idx],imageUrl:''};set('bags',b);}}>🗑️ הסר</button>
