@@ -380,6 +380,7 @@ const { useState, useEffect, useMemo, useRef } = React;
 // ── Constants ──
 const BAG_COST_PER_UNIT = 3;
 const BAG_COUNTS = [100, 150, 200, 250, 300, 400, 500];
+const ML_PER_BAG = 150; // מיליליטר קוקטייל לשקית — שנה כאן אם הנפח משתנה
 const EVENT_TYPES = ['חתונה','בר מצווה','בת מצווה','יום הולדת','מסיבת קוקטייל','אירוע חברה','מסיבת רווקים/ות','ברית','אחר'];
 const MONTH_NAMES = ['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'];
 const COCKTAIL_TYPES = [
@@ -1198,10 +1199,12 @@ function BagModal({bag, bagIdx, orderId, orders, onSave, onClose}) {
 
 // ── Bags View ──
 function BagsView({orders, onUpdateBag, onAddBag}) {
-  const [filter, setFilter] = useState('');
-  const [showModal, setShowModal] = useState(false);
-  const [editingBag, setEditingBag] = useState(null);   // {bag, bagIdx, orderId}
-  const [exporting, setExporting] = useState(false);
+  const [filter,      setFilter]      = useState('');
+  const [filterFrom,  setFilterFrom]  = useState('');
+  const [filterTo,    setFilterTo]    = useState('');
+  const [showModal,   setShowModal]   = useState(false);
+  const [editingBag,  setEditingBag]  = useState(null);
+  const [exporting,   setExporting]   = useState(false);
 
   const allBags = useMemo(() => {
     const result = [];
@@ -1212,11 +1215,24 @@ function BagsView({orders, onUpdateBag, onAddBag}) {
     return result;
   }, [orders]);
 
-  const filtered = filter ? allBags.filter(b=>b.customerName?.includes(filter)) : allBags;
+  // שקיות מסוננות לפי טווח תאריכים
+  const dateFilteredBags = useMemo(() => {
+    if (!filterFrom && !filterTo) return allBags;
+    return allBags.filter(b => {
+      if (!b.eventDate) return false;
+      if (filterFrom && b.eventDate < filterFrom) return false;
+      if (filterTo   && b.eventDate > filterTo)   return false;
+      return true;
+    });
+  }, [allBags, filterFrom, filterTo]);
 
+  // סינון נוסף לפי לקוח
+  const filtered = filter ? dateFilteredBags.filter(b=>b.customerName?.includes(filter)) : dateFilteredBags;
+
+  // סיכום קוקטיילים — מבוסס על dateFilteredBags
   const cocktailStats = useMemo(() => {
     const stats = {};
-    allBags.forEach(bag => {
+    dateFilteredBags.forEach(bag => {
       const key = (bag.cocktailB||'').trim();
       if (!key) return;
       if (!stats[key]) stats[key] = {count:0,bags:0};
@@ -1224,9 +1240,9 @@ function BagsView({orders, onUpdateBag, onAddBag}) {
       stats[key].bags += Number(bag.quantity)||0;
     });
     return Object.entries(stats).sort((a,b)=>b[1].bags-a[1].bags);
-  }, [allBags]);
+  }, [dateFilteredBags]);
 
-  const customers = useMemo(()=>[...new Set(allBags.map(b=>b.customerName).filter(Boolean))],[allBags]);
+  const customers = useMemo(()=>[...new Set(dateFilteredBags.map(b=>b.customerName).filter(Boolean))],[dateFilteredBags]);
 
   const exportToFactory = async () => {
     setExporting(true);
@@ -1234,41 +1250,72 @@ function BagsView({orders, onUpdateBag, onAddBag}) {
       const today = new Date().toISOString().slice(0,10);
       const fmtD = d => d ? new Date(d).toLocaleDateString('he-IL',{day:'2-digit',month:'2-digit',year:'numeric'}) : '';
 
-      // מיין: תאריך אירוע → לקוח → שקית
-      const rows = [...allBags].sort((a,b)=>{
+      // מיין: תאריך אירוע → לקוח → שקית (מסונן לפי טווח תאריכים)
+      const rows = [...dateFilteredBags].sort((a,b)=>{
         const dc=(a.eventDate||'').localeCompare(b.eventDate||''); if(dc) return dc;
         const nc=(a.customerName||'').localeCompare(b.customerName||''); if(nc) return nc;
         return (Number(a.bagNum)||0)-(Number(b.bagNum)||0);
       });
 
+      // ── ZIP: חלץ תמונות לתיקייה ──
+      const zip = new JSZip();
+      const imgFolder = zip.folder('תמונות');
+
+      // תמונות גב לפי הזמנה
+      const backImgNames = {};
+      orders.forEach(ord => {
+        if (ord.backImage && ord.backImage.startsWith('data:')) {
+          const ext = ord.backImage.includes('image/png') ? 'png' : 'jpg';
+          const safe = (ord.customerName||ord.id).replace(/[^א-תa-zA-Z0-9\-]/g,'_');
+          const name = `גב_${safe}.${ext}`;
+          imgFolder.file(name, ord.backImage.split(',')[1], {base64:true});
+          backImgNames[ord.id] = name;
+        }
+      });
+
+      // תמונות שקיות
+      const rowsWithImg = rows.map(b => {
+        let imgName = '';
+        if (b.imageUrl && b.imageUrl.startsWith('data:')) {
+          const ext = b.imageUrl.includes('image/png') ? 'png' : 'jpg';
+          const safe = (b.customerName||'').replace(/[^א-תa-zA-Z0-9\-]/g,'_');
+          imgName = `${safe}_שקית${b.bagNum||''}.${ext}`;
+          imgFolder.file(imgName, b.imageUrl.split(',')[1], {base64:true});
+        }
+        return {...b, _imgName: imgName};
+      });
+
       // ── Excel ──
-      const headers = ['לקוח','תאריך אירוע','שקית #','צד א — מלל','מספר תמונה','צד ב — שמות','קוקטייל','צריך תאריך?','כמות'];
-      const data = [headers, ...rows.map(b=>[
+      const headers = ['לקוח','תאריך אירוע','שקית #','תמונה','צד א — מלל','מספר תמונה','צד ב — שמות','קוקטייל','צריך תאריך?','כמות'];
+      const data = [headers, ...rowsWithImg.map(b=>[
         b.customerName||'', fmtD(b.eventDate), b.bagNum||'',
+        b._imgName ? `תמונות/${b._imgName}` : '',
         b.phraseA||'', b.imageNumA||'', b.namesB||'', b.cocktailB||'',
         b.needsDate?'כן':'לא', Number(b.quantity)||0,
       ])];
       const ws = XLSX.utils.aoa_to_sheet(data);
-      ws['!cols'] = [{wch:20},{wch:14},{wch:8},{wch:32},{wch:12},{wch:32},{wch:18},{wch:12},{wch:8}];
+      ws['!cols'] = [{wch:20},{wch:14},{wch:8},{wch:30},{wch:32},{wch:12},{wch:32},{wch:18},{wch:12},{wch:8}];
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, 'שקיות למפעל');
+      const xlsBuf = XLSX.write(wb, {bookType:'xlsx', type:'array'});
+      zip.file(`שקיות-למפעל-${today}.xlsx`, xlsBuf);
 
-      // ── HTML ויזואלי — כרטיס לכל שקית ──
-      // קבץ לפי הזמנה
+      // ── HTML ויזואלי — תמונות ב-relative path לתיקיית תמונות ──
       const orderMap = {};
-      rows.forEach(b=>{
+      rowsWithImg.forEach(b=>{
         if (!orderMap[b.orderId]) {
-          const ord = orders.find(o=>o.id===b.orderId)||{};
-          orderMap[b.orderId] = {customerName:b.customerName, eventDate:b.eventDate, backImage:ord.backImage||'', bags:[]};
+          orderMap[b.orderId] = {customerName:b.customerName, eventDate:b.eventDate, backImgName:backImgNames[b.orderId]||'', bags:[]};
         }
         orderMap[b.orderId].bags.push(b);
       });
 
-      const bagCard = (b) => `
+      const bagCard = (b) => {
+        const src = b._imgName ? `תמונות/${b._imgName}` : '';
+        return `
         <div class="bag-card">
           <div class="bag-head">שקית #${b.bagNum||''}  ·  ${Number(b.quantity)||0} יחידות${b.needsDate?' · 📅 צריך תאריך':''}</div>
           <div class="bag-body">
-            ${b.imageUrl ? `<div class="bag-img-wrap"><img src="${b.imageUrl}" class="bag-img" onclick="openLb(this.src)" title="לחץ להגדלה"/><div class="img-lbl">לחץ להגדלה 🔍</div></div>` : '<div class="bag-img-wrap no-img">אין תמונה</div>'}
+            ${src ? `<div class="bag-img-wrap"><img src="${src}" class="bag-img" onclick="openLb(this.src)" title="לחץ להגדלה"/><div class="img-lbl">לחץ להגדלה 🔍</div></div>` : '<div class="bag-img-wrap no-img">אין תמונה</div>'}
             <div class="bag-details">
               ${b.phraseA   ? `<div class="det"><span class="det-lbl">📝 צד א — מלל</span><span class="det-val">${b.phraseA}</span></div>` : ''}
               ${b.imageNumA ? `<div class="det"><span class="det-lbl">🔢 מספר תמונה</span><span class="det-val">${b.imageNumA}</span></div>` : ''}
@@ -1277,47 +1324,42 @@ function BagsView({orders, onUpdateBag, onAddBag}) {
             </div>
           </div>
         </div>`;
+      };
 
-      const orderBlock = (grp) => `
+      const orderBlock = (grp) => {
+        const backSrc = grp.backImgName ? `תמונות/${grp.backImgName}` : '';
+        return `
         <div class="order-block">
           <div class="order-hdr">👤 ${grp.customerName} &nbsp;|&nbsp; 📅 ${fmtD(grp.eventDate)} &nbsp;|&nbsp; 🛍️ ${grp.bags.reduce((s,b)=>s+(Number(b.quantity)||0),0)} יחידות</div>
-          ${grp.backImage ? `<div class="back-section"><div class="back-lbl">🖼️ תמונת גב — אחידה לכל השקיות</div><img src="${grp.backImage}" class="back-img" onclick="openLb(this.src)" title="לחץ להגדלה"/></div>` : ''}
+          ${backSrc ? `<div class="back-section"><div class="back-lbl">🖼️ תמונת גב — אחידה לכל השקיות</div><img src="${backSrc}" class="back-img" onclick="openLb(this.src)" title="לחץ להגדלה"/></div>` : ''}
           ${grp.bags.map(bagCard).join('')}
         </div>`;
+      };
 
       const html = `<!DOCTYPE html><html dir="rtl" lang="he"><head><meta charset="UTF-8">
 <title>סיכום שקיות למפעל — ${today}</title>
 <style>
-*{box-sizing:border-box;margin:0;padding:0}
-body{font-family:Arial,Helvetica,sans-serif;background:#f0f0f0;padding:24px;direction:rtl;color:#222}
-h1{text-align:center;font-size:22px;margin-bottom:24px;color:#333}
+*{box-sizing:border-box;margin:0;padding:0}body{font-family:Arial,Helvetica,sans-serif;background:#f0f0f0;padding:24px;direction:rtl;color:#222}
 .order-block{background:#fff;border-radius:12px;margin-bottom:28px;overflow:hidden;box-shadow:0 2px 10px rgba(0,0,0,.1);page-break-after:always}
 .order-hdr{background:#4f46e5;color:#fff;padding:12px 18px;font-size:16px;font-weight:700}
 .back-section{background:#eef0ff;padding:14px 18px;display:flex;align-items:center;gap:16px;border-bottom:1px solid #dde}
 .back-lbl{font-size:13px;font-weight:700;color:#4f46e5;min-width:180px}
 .back-img{width:140px;height:140px;object-fit:cover;border-radius:8px;border:2px solid #c7d2fe;cursor:zoom-in}
-.bag-card{border-top:1px solid #eee;padding:16px 18px}
-.bag-head{font-weight:700;color:#4f46e5;font-size:14px;margin-bottom:12px}
-.bag-body{display:flex;gap:18px;align-items:flex-start}
-.bag-img-wrap{width:160px;flex-shrink:0;text-align:center}
+.bag-card{border-top:1px solid #eee;padding:16px 18px}.bag-head{font-weight:700;color:#4f46e5;font-size:14px;margin-bottom:12px}
+.bag-body{display:flex;gap:18px;align-items:flex-start}.bag-img-wrap{width:160px;flex-shrink:0;text-align:center}
 .bag-img{width:160px;height:160px;object-fit:cover;border-radius:8px;border:2px solid #e5e7eb;cursor:zoom-in}
 .no-img{width:160px;height:160px;display:flex;align-items:center;justify-content:center;background:#f9f9f9;border:2px dashed #d1d5db;border-radius:8px;font-size:12px;color:#aaa}
-.img-lbl{font-size:11px;color:#888;margin-top:5px}
-.bag-details{flex:1}
-.det{margin-bottom:10px}
-.det-lbl{display:block;font-size:11px;color:#888;margin-bottom:2px}
-.det-val{font-size:15px;font-weight:600;line-height:1.4;white-space:pre-wrap}
+.img-lbl{font-size:11px;color:#888;margin-top:5px}.bag-details{flex:1}.det{margin-bottom:10px}
+.det-lbl{display:block;font-size:11px;color:#888;margin-bottom:2px}.det-val{font-size:15px;font-weight:600;line-height:1.4;white-space:pre-wrap}
 #lb{display:none;position:fixed;inset:0;background:rgba(0,0,0,.92);z-index:9999;align-items:center;justify-content:center;cursor:zoom-out}
-#lb.open{display:flex}
-#lb img{max-width:92vw;max-height:92vh;object-fit:contain;border-radius:10px;box-shadow:0 8px 40px rgba(0,0,0,.6)}
+#lb.open{display:flex}#lb img{max-width:92vw;max-height:92vh;object-fit:contain;border-radius:10px;box-shadow:0 8px 40px rgba(0,0,0,.6)}
 #lb-x{position:absolute;top:18px;right:22px;color:#fff;font-size:30px;cursor:pointer;line-height:1;user-select:none}
-@media print{.toolbar{display:none!important}body{background:#fff;padding:0}.order-block{box-shadow:none;margin-bottom:0}#lb{display:none!important}}
+@media print{.toolbar{display:none!important}body{background:#fff;padding:0}.order-block{box-shadow:none}#lb{display:none!important}}
 </style></head><body>
 <div class="toolbar" style="position:sticky;top:0;z-index:100;background:#4f46e5;padding:10px 20px;display:flex;align-items:center;justify-content:space-between;margin:-24px -24px 24px -24px;box-shadow:0 2px 8px rgba(0,0,0,.2)">
   <span style="color:#fff;font-weight:700;font-size:16px">📦 סיכום שקיות למפעל &mdash; ${today}</span>
   <button onclick="window.print()" style="background:#fff;color:#4f46e5;border:none;border-radius:8px;padding:8px 18px;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit">🖨️ שמור / הדפס PDF</button>
 </div>
-<h1 style="display:none">${today}</h1>
 ${Object.values(orderMap).map(orderBlock).join('')}
 <div id="lb" onclick="closeLb()"><span id="lb-x" onclick="closeLb()">✕</span><img id="lb-img" src="" onclick="event.stopPropagation()"/></div>
 <${'script'}>
@@ -1327,20 +1369,13 @@ document.addEventListener('keydown',function(e){if(e.key==='Escape')closeLb();})
 </${'script'}>
 </body></html>`;
 
-      // ── הורדה ישירה: HTML + Excel נפרדים (ללא ZIP) ──
-      const dlFile = (content, filename, mime) => {
-        const blob = new Blob([content], {type: mime});
-        const url  = URL.createObjectURL(blob);
-        const a = document.createElement('a'); a.href=url; a.download=filename; a.click();
-        setTimeout(()=>URL.revokeObjectURL(url), 1000);
-      };
-      // 1. HTML עצמאי — כולל תמונות בפנים, נפתח בכל דפדפן בכפל-קליק
-      dlFile(html, `סיכום-למפעל-${today}.html`, 'text/html;charset=utf-8');
-      // 2. Excel — 400ms אחרי כדי שהדפדפן לא יחסום שתי הורדות
-      setTimeout(()=>{
-        const buf = XLSX.write(wb, {bookType:'xlsx', type:'array'});
-        dlFile(buf, `שקיות-למפעל-${today}.xlsx`, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-      }, 400);
+      zip.file(`סיכום-למפעל-${today}.html`, html);
+
+      // ── הורד ZIP ──
+      const zipBlob = await zip.generateAsync({type:'blob', compression:'DEFLATE', compressionOptions:{level:6}});
+      const zipUrl = URL.createObjectURL(zipBlob);
+      const a = document.createElement('a'); a.href=zipUrl; a.download=`שקיות-למפעל-${today}.zip`; a.click();
+      setTimeout(()=>URL.revokeObjectURL(zipUrl), 2000);
     } finally { setExporting(false); }
   };
 
@@ -1357,31 +1392,77 @@ document.addEventListener('keydown',function(e){if(e.key==='Escape')closeLb();})
   return (
     <div style={{display:'flex',flexDirection:'column',gap:16}}>
       {cocktailStats.length>0 && (
-        <div className="card">
-          <div className="card-hdr"><span className="card-title">📊 סיכום לפי קוקטייל</span></div>
-          <div style={{display:'flex',flexWrap:'wrap',gap:10,padding:'12px 16px'}}>
-            {cocktailStats.map(([name,s])=>{
-              const cidx=COCKTAIL_TYPES.findIndex(c=>c.toLowerCase()===name.toLowerCase());
-              return (
-                <div key={name} style={{background:'var(--gray-50)',border:'1px solid var(--gray-200)',borderRadius:10,padding:'10px 16px',minWidth:150}}>
-                  <span className={`chip chip-${cidx>=0?cidx%7:Math.abs(name.charCodeAt(0))%7}`}>{name}</span>
-                  <div style={{fontSize:12,color:'var(--gray-500)',marginTop:4}}>{s.bags} שקיות · {s.count} עיצובים</div>
-                </div>
-              );
-            })}
+        <>
+          <div className="card">
+            <div className="card-hdr"><span className="card-title">📊 סיכום לפי קוקטייל</span></div>
+            <div style={{display:'flex',flexWrap:'wrap',gap:10,padding:'12px 16px'}}>
+              {cocktailStats.map(([name,s])=>{
+                const cidx=COCKTAIL_TYPES.findIndex(c=>c.toLowerCase()===name.toLowerCase());
+                const liters = (s.bags * ML_PER_BAG / 1000).toFixed(1);
+                return (
+                  <div key={name} style={{background:'var(--gray-50)',border:'1px solid var(--gray-200)',borderRadius:10,padding:'10px 16px',minWidth:160}}>
+                    <span className={`chip chip-${cidx>=0?cidx%7:Math.abs(name.charCodeAt(0))%7}`}>{name}</span>
+                    <div style={{fontSize:12,color:'var(--gray-500)',marginTop:4}}>{s.bags} שקיות · {liters} ל׳</div>
+                    <div style={{fontSize:11,color:'var(--gray-400)'}}>{s.count} עיצובים</div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
-        </div>
+          <div className="card">
+            <div className="card-hdr">
+              <span className="card-title">🏭 סיכום ייצור</span>
+              <span style={{fontSize:12,color:'var(--gray-400)'}}>{filterFrom||filterTo ? `${filterFrom?new Date(filterFrom).toLocaleDateString('he-IL'):'...'} – ${filterTo?new Date(filterTo).toLocaleDateString('he-IL'):'...'}` : 'כל הזמנים'}</span>
+            </div>
+            <div style={{padding:'0 0 8px 0'}}>
+              <table style={{width:'100%',borderCollapse:'collapse',fontSize:13}}>
+                <thead>
+                  <tr style={{background:'var(--gray-50)',borderBottom:'2px solid var(--gray-200)'}}>
+                    <th style={{padding:'8px 16px',textAlign:'right',fontWeight:700}}>קוקטייל</th>
+                    <th style={{padding:'8px 12px',textAlign:'center',fontWeight:700}}>שקיות</th>
+                    <th style={{padding:'8px 12px',textAlign:'center',fontWeight:700}}>ליטרים</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {cocktailStats.map(([name,s],i)=>(
+                    <tr key={name} style={{background:i%2===0?'#fff':'var(--gray-50)',borderBottom:'1px solid var(--gray-100)'}}>
+                      <td style={{padding:'8px 16px',fontWeight:600}}>{name}</td>
+                      <td style={{padding:'8px 12px',textAlign:'center'}}>{s.bags}</td>
+                      <td style={{padding:'8px 12px',textAlign:'center',color:'var(--primary)',fontWeight:600}}>{(s.bags * ML_PER_BAG / 1000).toFixed(2)} ל׳</td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr style={{background:'var(--gray-100)',borderTop:'2px solid var(--gray-200)',fontWeight:700}}>
+                    <td style={{padding:'8px 16px'}}>סה״כ</td>
+                    <td style={{padding:'8px 12px',textAlign:'center'}}>{cocktailStats.reduce((s,[,v])=>s+v.bags,0)}</td>
+                    <td style={{padding:'8px 12px',textAlign:'center',color:'var(--primary)'}}>{(cocktailStats.reduce((s,[,v])=>s+v.bags,0) * ML_PER_BAG / 1000).toFixed(2)} ל׳</td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          </div>
+        </>
       )}
-      <div className="filters">
-        <span style={{fontSize:13,fontWeight:700,color:'var(--gray-600)'}}>סינון לפי לקוח:</span>
+      <div className="filters" style={{flexWrap:'wrap',rowGap:8}}>
+        <span style={{fontSize:13,fontWeight:700,color:'var(--gray-600)'}}>סינון:</span>
+        <span style={{fontSize:12,color:'var(--gray-500)'}}>לקוח:</span>
         <select className="f-sel" value={filter} onChange={e=>setFilter(e.target.value)}>
           <option value="">הכל</option>
           {customers.map(c=><option key={c} value={c}>{c}</option>)}
         </select>
-        <span className="f-count">{filtered.length} שקיות</span>
+        <div className="f-div"/>
+        <label style={{fontSize:12,color:'var(--gray-500)',display:'flex',alignItems:'center',gap:4}}>
+          מ: <input type="date" value={filterFrom} onChange={e=>setFilterFrom(e.target.value)} style={{fontSize:12,padding:'3px 6px',borderRadius:6,border:'1px solid var(--gray-300)',fontFamily:'inherit'}}/>
+        </label>
+        <label style={{fontSize:12,color:'var(--gray-500)',display:'flex',alignItems:'center',gap:4}}>
+          עד: <input type="date" value={filterTo} onChange={e=>setFilterTo(e.target.value)} style={{fontSize:12,padding:'3px 6px',borderRadius:6,border:'1px solid var(--gray-300)',fontFamily:'inherit'}}/>
+        </label>
+        {(filterFrom||filterTo) && <button onClick={()=>{setFilterFrom('');setFilterTo('');}} style={{fontSize:11,padding:'3px 8px',borderRadius:6,border:'1px solid var(--gray-300)',background:'var(--gray-100)',cursor:'pointer',color:'var(--gray-600)'}}>✕ נקה תאריכים</button>}
+        <span className="f-count">{filtered.length} שקיות{(filterFrom||filterTo)&&dateFilteredBags.length!==allBags.length?` (מתוך ${allBags.length})`:''}</span>
         <div style={{marginRight:'auto',display:'flex',gap:8}}>
           <button className="btn btn-pri" style={{fontSize:13,padding:'6px 14px'}} onClick={openAdd}>+ הוסף שקית</button>
-          <button className="btn btn-outline" style={{fontSize:13,padding:'6px 14px',color:'var(--green)',borderColor:'var(--green)',fontWeight:700,opacity:exporting?0.6:1}} onClick={exportToFactory} disabled={exporting} title="ייצוא לקובץ (Excel + תמונות) לשליחה למפעל">{exporting?'⏳ מכין…':'📤 ייצוא למפעל'}</button>
+          <button className="btn btn-outline" style={{fontSize:13,padding:'6px 14px',color:'var(--green)',borderColor:'var(--green)',fontWeight:700,opacity:exporting?0.6:1}} onClick={exportToFactory} disabled={exporting} title="ייצוא ל-ZIP (Excel + תמונות) לשליחה למפעל">{exporting?'⏳ מכין…':'📤 ייצוא למפעל'}</button>
         </div>
       </div>
       <div className="card">
@@ -1652,7 +1733,7 @@ function Dashboard({orders, settings, onUpdateSettings, onAdd, onEdit}) {
 function OrdersTable({orders, allOrders, filters, onFilter, onEdit, onDelete, onAdd, onQuickUpdate}) {
   const monthOpts = useMemo(()=>{const s=new Set();allOrders.forEach(o=>{if(o.eventDate)s.add(o.eventDate.substring(0,7));});return[...s].sort().reverse();},[allOrders]);
   const totals = useMemo(()=>orders.reduce((a,o)=>({rev:a.rev+revenue(o),bags:a.bags+(Number(o.bagCount)||0),advPaid:a.advPaid+(o.advancePaid?1:0),balPaid:a.balPaid+(o.balancePaid?1:0)}),{rev:0,bags:0,advPaid:0,balPaid:0}),[orders]);
-  const hasF = filters.month||filters.status||filters.closedBy;
+  const hasF = filters.month||filters.status||filters.closedBy||filters.dateFrom||filters.dateTo;
   const fmtMo = (ym)=>{const[y,m]=ym.split('-');return`${MONTH_NAMES[parseInt(m)-1]} ${y}`;};
 
   const PayBtn = ({orderId, field, value}) => (
@@ -1683,8 +1764,13 @@ function OrdersTable({orders, allOrders, filters, onFilter, onEdit, onDelete, on
           <option value="">הכולם</option>
           {TEAM_CLOSER.map(t=><option key={t} value={t}>{t}</option>)}
         </select>
+        <div className="f-div"/>
+        <span className="f-lbl">מתאריך:</span>
+        <input type="date" className="f-sel" value={filters.dateFrom||''} onChange={e=>onFilter(p=>({...p,dateFrom:e.target.value,month:''}))} style={{fontSize:12,padding:'3px 6px'}}/>
+        <span className="f-lbl">עד:</span>
+        <input type="date" className="f-sel" value={filters.dateTo||''} onChange={e=>onFilter(p=>({...p,dateTo:e.target.value,month:''}))} style={{fontSize:12,padding:'3px 6px'}}/>
         <span className="f-count">{orders.length} הזמנות</span>
-        {hasF && <button className="f-clear" onClick={()=>onFilter({month:'',status:'',closedBy:''})}>נקה סינון ✕</button>}
+        {hasF && <button className="f-clear" onClick={()=>onFilter({month:'',status:'',closedBy:'',dateFrom:'',dateTo:''})}>נקה סינון ✕</button>}
       </div>
       {orders.length>0 && (
         <div className="sum-bar">
@@ -2281,7 +2367,7 @@ function App() {
   const [tab, setTab] = useState('dashboard');
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState(null);
-  const [filters, setFilters] = useState({month:'',status:'',closedBy:''});
+  const [filters, setFilters] = useState({month:'',status:'',closedBy:'',dateFrom:'',dateTo:''});
 
   useEffect(() => {
     if (!db) return;
@@ -2359,6 +2445,8 @@ function App() {
     if (filters.month && o.eventDate?.substring(0,7) !== filters.month) return false;
     if (filters.status && o.status !== filters.status) return false;
     if (filters.closedBy && o.closedBy !== filters.closedBy) return false;
+    if (filters.dateFrom && (!o.eventDate || o.eventDate < filters.dateFrom)) return false;
+    if (filters.dateTo   && (!o.eventDate || o.eventDate > filters.dateTo))   return false;
     return true;
   }).sort((a,b) => {
     if (!a.eventDate) return 1; if (!b.eventDate) return -1;
