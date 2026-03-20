@@ -793,6 +793,7 @@ function TransactionsView({transactions, onAdd, onDelete, onUpdate, fixedExpense
 
   // ── פילטרים ומיון ──
   const [txType,   setTxType]   = useState('all');       // 'all' | 'income' | 'expense'
+  const [txWho,    setTxWho]    = useState('all');        // 'all' | 'בוזבאגס' | 'מלאכי' | 'יותם'
   const [txPeriod, setTxPeriod] = useState('all');        // 'all' | '7' | '30' | '90' | 'custom'
   const [txFrom,   setTxFrom]   = useState('');
   const [txTo,     setTxTo]     = useState('');
@@ -804,6 +805,8 @@ function TransactionsView({transactions, onAdd, onDelete, onUpdate, fixedExpense
     let list = [...transactions];
     // סוג
     if (txType !== 'all') list = list.filter(t => t.type === txType);
+    // חשבון
+    if (txWho !== 'all') list = list.filter(t => t.who === txWho);
     // תקופה
     if (txPeriod !== 'all' && txPeriod !== 'custom') {
       const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - Number(txPeriod));
@@ -815,7 +818,7 @@ function TransactionsView({transactions, onAdd, onDelete, onUpdate, fixedExpense
       if (txTo)   list = list.filter(t => txDate(t) <= txTo);
     }
     return list;
-  }, [transactions, txType, txPeriod, txFrom, txTo]);
+  }, [transactions, txType, txWho, txPeriod, txFrom, txTo]);
 
   const filteredSorted = useMemo(() => {
     return [...visibleTx].sort((a,b) => {
@@ -846,7 +849,7 @@ function TransactionsView({transactions, onAdd, onDelete, onUpdate, fixedExpense
     setShowForm(false);
   };
 
-  const hasFilter = txType!=='all' || txPeriod!=='all' || txFrom || txTo;
+  const hasFilter = txType!=='all' || txWho!=='all' || txPeriod!=='all' || txFrom || txTo;
 
   const periodLabel = txPeriod==='7'?'7 ימים':txPeriod==='30'?'30 ימים':txPeriod==='90'?'3 חודשים':txPeriod==='custom'?'טווח מותאם':'כל הזמן';
 
@@ -986,6 +989,17 @@ function TransactionsView({transactions, onAdd, onDelete, onUpdate, fixedExpense
 
           <div className="f-div"/>
 
+          {/* חשבון */}
+          <div style={{display:'flex',borderRadius:8,overflow:'hidden',border:'1px solid var(--gray-200)'}}>
+            {[['all','הכל'],['בוזבאגס','🍹 בוזבאגס'],['מלאכי','מלאכי'],['יותם','יותם']].map(([v,lbl])=>(
+              <button key={v} onClick={()=>setTxWho(v)} style={{padding:'5px 11px',fontSize:12,fontWeight:txWho===v?700:400,background:txWho===v?(v==='בוזבאגס'?'#4f46e5':v==='מלאכי'?'#db2777':'#2563eb'):'#fff',color:txWho===v?'#fff':'var(--gray-600)',border:'none',cursor:'pointer',borderLeft:'1px solid var(--gray-200)'}}>
+                {lbl}
+              </button>
+            ))}
+          </div>
+
+          <div className="f-div"/>
+
           {/* תקופה */}
           <div style={{display:'flex',borderRadius:8,overflow:'hidden',border:'1px solid var(--gray-200)'}}>
             {[['all','הכל'],['7','7י׳'],['30','30י׳'],['90','3ח׳'],['custom','טווח']].map(([v,lbl])=>(
@@ -1017,7 +1031,7 @@ function TransactionsView({transactions, onAdd, onDelete, onUpdate, fixedExpense
           </select>
 
           <span style={{fontSize:12,color:'var(--gray-400)',marginRight:'auto'}}>{filteredSorted.length} רשומות{hasFilter&&transactions.length!==filteredSorted.length?` (מתוך ${transactions.length})`:''}</span>
-          {hasFilter && <button onClick={()=>{setTxType('all');setTxPeriod('all');setTxFrom('');setTxTo('');}} style={{fontSize:11,padding:'4px 10px',borderRadius:6,border:'1px solid var(--gray-300)',background:'var(--gray-100)',cursor:'pointer',color:'var(--gray-600)'}}>✕ נקה</button>}
+          {hasFilter && <button onClick={()=>{setTxType('all');setTxWho('all');setTxPeriod('all');setTxFrom('');setTxTo('');}} style={{fontSize:11,padding:'4px 10px',borderRadius:6,border:'1px solid var(--gray-300)',background:'var(--gray-100)',cursor:'pointer',color:'var(--gray-600)'}}>✕ נקה</button>}
         </div>
       </div>
 
