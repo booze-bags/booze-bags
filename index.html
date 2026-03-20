@@ -400,7 +400,7 @@ const DELIVERY_TYPE_COLOR = { 'משלוח':'var(--primary)', 'איסוף מתל 
 const DELIVERY_STATUSES = ['ממתין', 'בדרך', 'הגיע', 'ביטל'];
 const DELIVERY_STATUS_CLASS = { 'ממתין':'del-waiting', 'בדרך':'del-way', 'הגיע':'del-arrived', 'ביטל':'del-cancelled' };
 const BAG_EMPTY = {bagNum:1, phraseA:'', imageNumA:'', namesB:'', cocktailB:'', quantity:100, needsDate:false};
-const TEAM = ['מלאכי', 'יותם'];
+const TEAM = ['בוזבאגס', 'מלאכי', 'יותם'];
 const TEAM_CLOSER = ['מלאכי', 'יותם', 'טל', 'מאיה'];
 const DOW_HE = ['א','ב','ג','ד','ה','ו','ש'];
 
@@ -778,7 +778,7 @@ function TransactionsView({transactions, onAdd, onDelete, onUpdate, fixedExpense
   const onetimeList   = fixedExpenses.filter(e=>!e.isRecurring);
   const ym = currentYM();
   const monthlyRecurringTotal = recurringList.filter(e=>e.startMonth<=ym&&(!e.endMonth||e.endMonth>=ym)).reduce((s,e)=>s+(Number(e.amount)||0),0);
-  const [form, setForm] = useState({type:'income', description:'', amount:'', who:'מלאכי', date:today});
+  const [form, setForm] = useState({type:'income', description:'', amount:'', who:'בוזבאגס', date:today});
   const setF = (k,v) => setForm(p=>({...p,[k]:v}));
   const [editTx, setEditTx] = useState(null); // transaction being edited
   const [editForm, setEditForm] = useState({});
@@ -842,7 +842,7 @@ function TransactionsView({transactions, onAdd, onDelete, onUpdate, fixedExpense
     e.preventDefault();
     if (!form.description.trim() || !form.amount) return;
     onAdd({...form, amount: Number(form.amount), createdAt: new Date().toISOString()});
-    setForm({type:'income', description:'', amount:'', who:'מלאכי', date:today});
+    setForm({type:'income', description:'', amount:'', who:'בוזבאגס', date:today});
     setShowForm(false);
   };
 
@@ -1029,9 +1029,36 @@ function TransactionsView({transactions, onAdd, onDelete, onUpdate, fixedExpense
         <div className="stat-card"><div className="stat-icon si-violet">🧾</div><div><div className="stat-val">{filteredSorted.length}</div><div className="stat-lbl">{hasFilter?'רשומות בסינון':'סה״כ רשומות'}</div></div></div>
       </div>
 
-      {/* Per-person summary */}
+      {/* Per-account summary */}
+      {/* בוזבאגס — כרטיס ראשי גדול */}
+      {(()=>{const d=totals.perPerson['בוזבאגס']||{income:0,expense:0};return(
+        <div className="lb-card" style={{borderTop:'5px solid #4f46e5',background:'linear-gradient(135deg,#fafafa 0%,#f0f0ff 100%)'}}>
+          <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:16}}>
+            <span style={{fontSize:22}}>🍹</span>
+            <div>
+              <div style={{fontSize:20,fontWeight:900,color:'#4f46e5'}}>בוזבאגס</div>
+              <div style={{fontSize:12,color:'var(--gray-400)'}}>החשבון הראשי</div>
+            </div>
+          </div>
+          <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:16}}>
+            <div style={{background:'#fff',borderRadius:10,padding:'12px 16px',boxShadow:'0 1px 4px rgba(0,0,0,.07)'}}>
+              <div style={{fontSize:11,color:'var(--gray-400)',fontWeight:700,marginBottom:6}}>הכנסות</div>
+              <div style={{fontSize:22,fontWeight:900,color:'var(--green)'}}>{fmt(d.income)}</div>
+            </div>
+            <div style={{background:'#fff',borderRadius:10,padding:'12px 16px',boxShadow:'0 1px 4px rgba(0,0,0,.07)'}}>
+              <div style={{fontSize:11,color:'var(--gray-400)',fontWeight:700,marginBottom:6}}>הוצאות</div>
+              <div style={{fontSize:22,fontWeight:900,color:'var(--red)'}}>{fmt(d.expense)}</div>
+            </div>
+            <div style={{background:'#fff',borderRadius:10,padding:'12px 16px',boxShadow:'0 1px 4px rgba(0,0,0,.07)'}}>
+              <div style={{fontSize:11,color:'var(--gray-400)',fontWeight:700,marginBottom:6}}>מאזן</div>
+              <div style={{fontSize:22,fontWeight:900,color:(d.income-d.expense)>=0?'var(--green)':'var(--red)'}}>{fmt(d.income-d.expense)}</div>
+            </div>
+          </div>
+        </div>
+      )})()}
+      {/* מלאכי + יותם — כרטיסים אישיים */}
       <div style={{display:'grid',gridTemplateColumns:'repeat(2,1fr)',gap:16}}>
-        {TEAM.map(name=>{const d=totals.perPerson[name]||{income:0,expense:0};return(
+        {['מלאכי','יותם'].map(name=>{const d=totals.perPerson[name]||{income:0,expense:0};return(
           <div key={name} className="lb-card"
             style={{borderTopColor: name==='מלאכי'?'#db2777':'#2563eb', borderTopWidth:4, borderTopStyle:'solid'}}>
             <div style={{fontSize:16,fontWeight:800,marginBottom:12}}>{name}</div>
