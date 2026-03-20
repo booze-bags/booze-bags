@@ -791,16 +791,52 @@ function TransactionsView({transactions, onAdd, onDelete, onUpdate, fixedExpense
     setEditTx(null);
   };
 
+  // ── פילטרים ומיון ──
+  const [txType,   setTxType]   = useState('all');       // 'all' | 'income' | 'expense'
+  const [txPeriod, setTxPeriod] = useState('all');        // 'all' | '7' | '30' | '90' | 'custom'
+  const [txFrom,   setTxFrom]   = useState('');
+  const [txTo,     setTxTo]     = useState('');
+  const [txSort,   setTxSort]   = useState('date_desc'); // 'date_desc' | 'date_asc' | 'amount_desc' | 'amount_asc'
+
+  const txDate = t => t.date || (t.createdAt ? t.createdAt.slice(0,10) : '');
+
+  const visibleTx = useMemo(() => {
+    let list = [...transactions];
+    // סוג
+    if (txType !== 'all') list = list.filter(t => t.type === txType);
+    // תקופה
+    if (txPeriod !== 'all' && txPeriod !== 'custom') {
+      const cutoff = new Date(); cutoff.setDate(cutoff.getDate() - Number(txPeriod));
+      const cutoffStr = cutoff.toISOString().slice(0,10);
+      list = list.filter(t => txDate(t) >= cutoffStr);
+    }
+    if (txPeriod === 'custom') {
+      if (txFrom) list = list.filter(t => txDate(t) >= txFrom);
+      if (txTo)   list = list.filter(t => txDate(t) <= txTo);
+    }
+    return list;
+  }, [transactions, txType, txPeriod, txFrom, txTo]);
+
+  const filteredSorted = useMemo(() => {
+    return [...visibleTx].sort((a,b) => {
+      if (txSort === 'date_asc')    return txDate(a).localeCompare(txDate(b));
+      if (txSort === 'date_desc')   return txDate(b).localeCompare(txDate(a));
+      if (txSort === 'amount_desc') return (Number(b.amount)||0) - (Number(a.amount)||0);
+      if (txSort === 'amount_asc')  return (Number(a.amount)||0) - (Number(b.amount)||0);
+      return 0;
+    });
+  }, [visibleTx, txSort]);
+
   const totals = useMemo(() => {
-    const income  = transactions.filter(t=>t.type==='income').reduce((a,t)=>a+(Number(t.amount)||0),0);
-    const expense = transactions.filter(t=>t.type==='expense').reduce((a,t)=>a+(Number(t.amount)||0),0);
+    const income  = visibleTx.filter(t=>t.type==='income').reduce((a,t)=>a+(Number(t.amount)||0),0);
+    const expense = visibleTx.filter(t=>t.type==='expense').reduce((a,t)=>a+(Number(t.amount)||0),0);
     const byPerson = (name) => ({
-      income:  transactions.filter(t=>t.who===name&&t.type==='income').reduce((a,t)=>a+(Number(t.amount)||0),0),
-      expense: transactions.filter(t=>t.who===name&&t.type==='expense').reduce((a,t)=>a+(Number(t.amount)||0),0),
+      income:  visibleTx.filter(t=>t.who===name&&t.type==='income').reduce((a,t)=>a+(Number(t.amount)||0),0),
+      expense: visibleTx.filter(t=>t.who===name&&t.type==='expense').reduce((a,t)=>a+(Number(t.amount)||0),0),
     });
     const perPerson = TEAM.reduce((acc,name)=>({...acc,[name]:byPerson(name)}),{});
     return { income, expense, net: income-expense, perPerson };
-  }, [transactions]);
+  }, [visibleTx]);
 
   const handleSubmit = (e) => {
     e.preventDefault();
@@ -810,7 +846,9 @@ function TransactionsView({transactions, onAdd, onDelete, onUpdate, fixedExpense
     setShowForm(false);
   };
 
-  const sorted = [...transactions].sort((a,b)=>new Date(b.createdAt||0)-new Date(a.createdAt||0));
+  const hasFilter = txType!=='all' || txPeriod!=='all' || txFrom || txTo;
+
+  const periodLabel = txPeriod==='7'?'7 ימים':txPeriod==='30'?'30 ימים':txPeriod==='90'?'3 חודשים':txPeriod==='custom'?'טווח מותאם':'כל הזמן';
 
   return (
     <div style={{display:'flex',flexDirection:'column',gap:16}}>
@@ -932,12 +970,63 @@ function TransactionsView({transactions, onAdd, onDelete, onUpdate, fixedExpense
           </div>
         </div>
       )}
+      {/* ── פילטרים ── */}
+      <div className="card" style={{padding:'12px 16px'}}>
+        <div style={{display:'flex',flexWrap:'wrap',gap:10,alignItems:'center'}}>
+          <span style={{fontSize:13,fontWeight:700,color:'var(--gray-600)'}}>סינון:</span>
+
+          {/* סוג */}
+          <div style={{display:'flex',borderRadius:8,overflow:'hidden',border:'1px solid var(--gray-200)'}}>
+            {[['all','הכל'],['income','💰 הכנסות'],['expense','💸 הוצאות']].map(([v,lbl])=>(
+              <button key={v} onClick={()=>setTxType(v)} style={{padding:'5px 12px',fontSize:12,fontWeight:txType===v?700:400,background:txType===v?(v==='income'?'var(--green)':v==='expense'?'var(--red)':'var(--primary)'):'#fff',color:txType===v?'#fff':'var(--gray-600)',border:'none',cursor:'pointer',borderLeft:'1px solid var(--gray-200)'}}>
+                {lbl}
+              </button>
+            ))}
+          </div>
+
+          <div className="f-div"/>
+
+          {/* תקופה */}
+          <div style={{display:'flex',borderRadius:8,overflow:'hidden',border:'1px solid var(--gray-200)'}}>
+            {[['all','הכל'],['7','7י׳'],['30','30י׳'],['90','3ח׳'],['custom','טווח']].map(([v,lbl])=>(
+              <button key={v} onClick={()=>setTxPeriod(v)} style={{padding:'5px 10px',fontSize:12,fontWeight:txPeriod===v?700:400,background:txPeriod===v?'var(--primary)':'#fff',color:txPeriod===v?'#fff':'var(--gray-600)',border:'none',cursor:'pointer',borderLeft:'1px solid var(--gray-200)'}}>
+                {lbl}
+              </button>
+            ))}
+          </div>
+
+          {txPeriod==='custom' && (
+            <>
+              <label style={{fontSize:12,color:'var(--gray-500)',display:'flex',alignItems:'center',gap:4}}>
+                מ: <input type="date" value={txFrom} onChange={e=>setTxFrom(e.target.value)} style={{fontSize:12,padding:'3px 6px',borderRadius:6,border:'1px solid var(--gray-300)',fontFamily:'inherit'}}/>
+              </label>
+              <label style={{fontSize:12,color:'var(--gray-500)',display:'flex',alignItems:'center',gap:4}}>
+                עד: <input type="date" value={txTo} onChange={e=>setTxTo(e.target.value)} style={{fontSize:12,padding:'3px 6px',borderRadius:6,border:'1px solid var(--gray-300)',fontFamily:'inherit'}}/>
+              </label>
+            </>
+          )}
+
+          <div className="f-div"/>
+
+          {/* מיון */}
+          <select value={txSort} onChange={e=>setTxSort(e.target.value)} style={{fontSize:12,padding:'5px 8px',borderRadius:8,border:'1px solid var(--gray-200)',background:'#fff',color:'var(--gray-600)'}}>
+            <option value="date_desc">תאריך: חדש → ישן</option>
+            <option value="date_asc">תאריך: ישן → חדש</option>
+            <option value="amount_desc">סכום: גדול → קטן</option>
+            <option value="amount_asc">סכום: קטן → גדול</option>
+          </select>
+
+          <span style={{fontSize:12,color:'var(--gray-400)',marginRight:'auto'}}>{filteredSorted.length} רשומות{hasFilter&&transactions.length!==filteredSorted.length?` (מתוך ${transactions.length})`:''}</span>
+          {hasFilter && <button onClick={()=>{setTxType('all');setTxPeriod('all');setTxFrom('');setTxTo('');}} style={{fontSize:11,padding:'4px 10px',borderRadius:6,border:'1px solid var(--gray-300)',background:'var(--gray-100)',cursor:'pointer',color:'var(--gray-600)'}}>✕ נקה</button>}
+        </div>
+      </div>
+
       {/* Summary cards */}
       <div className="stats-grid">
-        <div className="stat-card"><div className="stat-icon si-green">💰</div><div><div className="stat-val" style={{color:'var(--green)'}}>{fmt(totals.income)}</div><div className="stat-lbl">סה״כ הכנסות</div></div></div>
-        <div className="stat-card"><div className="stat-icon si-red">💸</div><div><div className="stat-val" style={{color:'var(--red)'}}>{fmt(totals.expense)}</div><div className="stat-lbl">סה״כ הוצאות</div></div></div>
-        <div className="stat-card"><div className="stat-icon si-cyan">📊</div><div><div className="stat-val" style={{color:totals.net>=0?'var(--green)':'var(--red)'}}>{fmt(totals.net)}</div><div className="stat-lbl">מאזן כולל</div></div></div>
-        <div className="stat-card"><div className="stat-icon si-violet">🧾</div><div><div className="stat-val">{transactions.length}</div><div className="stat-lbl">סה״כ רשומות</div></div></div>
+        <div className="stat-card"><div className="stat-icon si-green">💰</div><div><div className="stat-val" style={{color:'var(--green)'}}>{fmt(totals.income)}</div><div className="stat-lbl">{hasFilter?`הכנסות — ${periodLabel}`:'סה״כ הכנסות'}</div></div></div>
+        <div className="stat-card"><div className="stat-icon si-red">💸</div><div><div className="stat-val" style={{color:'var(--red)'}}>{fmt(totals.expense)}</div><div className="stat-lbl">{hasFilter?`הוצאות — ${periodLabel}`:'סה״כ הוצאות'}</div></div></div>
+        <div className="stat-card"><div className="stat-icon si-cyan">📊</div><div><div className="stat-val" style={{color:totals.net>=0?'var(--green)':'var(--red)'}}>{fmt(totals.net)}</div><div className="stat-lbl">מאזן{hasFilter?` — ${periodLabel}`:' כולל'}</div></div></div>
+        <div className="stat-card"><div className="stat-icon si-violet">🧾</div><div><div className="stat-val">{filteredSorted.length}</div><div className="stat-lbl">{hasFilter?'רשומות בסינון':'סה״כ רשומות'}</div></div></div>
       </div>
 
       {/* Per-person summary */}
@@ -961,6 +1050,7 @@ function TransactionsView({transactions, onAdd, onDelete, onUpdate, fixedExpense
           <span className="card-title">רשומות הכנסות והוצאות</span>
           <button className="btn btn-violet btn-sm" onClick={()=>setShowForm(p=>!p)}>+ הוסף</button>
         </div>
+        {hasFilter && <div style={{padding:'4px 16px 6px',fontSize:12,color:'var(--primary)',fontWeight:600}}>מציג: {txType==='income'?'💰 הכנסות בלבד':txType==='expense'?'💸 הוצאות בלבד':'הכנסות + הוצאות'} · {periodLabel}</div>}
         {showForm && (
           <form onSubmit={handleSubmit} style={{padding:'14px 20px',borderBottom:'1px solid var(--gray-200)',background:'var(--gray-50)',display:'flex',flexWrap:'wrap',gap:10,alignItems:'flex-end'}}>
             <div className="fgroup" style={{minWidth:120}}>
@@ -994,14 +1084,14 @@ function TransactionsView({transactions, onAdd, onDelete, onUpdate, fixedExpense
             </div>
           </form>
         )}
-        {sorted.length === 0 ? (
+        {filteredSorted.length === 0 ? (
           <div className="empty" style={{padding:'32px 20px'}}>
             <div className="empty-icon">💳</div>
-            <p className="empty-txt">אין רשומות עדיין — לחץ + הוסף</p>
+            <p className="empty-txt">{hasFilter?'אין רשומות התואמות את הסינון':'אין רשומות עדיין — לחץ + הוסף'}</p>
           </div>
         ) : (
           <div>
-            {sorted.map(t=>(
+            {filteredSorted.map(t=>(
               <div key={t.id} className="tx-row">
                 <div className={`tx-icon ${t.type==='income'?'tx-income-bg':'tx-expense-bg'}`}>{t.type==='income'?'💰':'💸'}</div>
                 <div style={{flex:1}}>
