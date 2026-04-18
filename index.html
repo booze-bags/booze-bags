@@ -1541,9 +1541,18 @@ document.addEventListener('keydown',function(e){if(e.key==='Escape')closeLb();})
             </div>
           </div>
           <div className="card">
-            <div className="card-hdr">
+            <div className="card-hdr" style={{flexWrap:'wrap',rowGap:8}}>
               <span className="card-title">🏭 סיכום ייצור</span>
-              <span style={{fontSize:12,color:'var(--gray-400)'}}>{filterFrom||filterTo ? `${filterFrom?new Date(filterFrom).toLocaleDateString('he-IL'):'...'} – ${filterTo?new Date(filterTo).toLocaleDateString('he-IL'):'...'}` : 'כל הזמנים'}</span>
+              <div style={{display:'flex',alignItems:'center',gap:8,marginRight:'auto',flexWrap:'wrap'}}>
+                <label style={{fontSize:12,color:'var(--gray-500)',display:'flex',alignItems:'center',gap:4}}>
+                  מ: <input type="date" value={filterFrom} onChange={e=>setFilterFrom(e.target.value)} style={{fontSize:12,padding:'3px 6px',borderRadius:6,border:'1px solid var(--gray-300)',fontFamily:'inherit'}}/>
+                </label>
+                <label style={{fontSize:12,color:'var(--gray-500)',display:'flex',alignItems:'center',gap:4}}>
+                  עד: <input type="date" value={filterTo} onChange={e=>setFilterTo(e.target.value)} style={{fontSize:12,padding:'3px 6px',borderRadius:6,border:'1px solid var(--gray-300)',fontFamily:'inherit'}}/>
+                </label>
+                {(filterFrom||filterTo) && <button onClick={()=>{setFilterFrom('');setFilterTo('');}} style={{fontSize:11,padding:'3px 8px',borderRadius:6,border:'1px solid var(--gray-300)',background:'var(--gray-100)',cursor:'pointer',color:'var(--gray-600)'}}>✕</button>}
+                <span style={{fontSize:12,color:'var(--gray-400)'}}>{filterFrom||filterTo ? `${filterFrom?new Date(filterFrom).toLocaleDateString('he-IL'):'...'} – ${filterTo?new Date(filterTo).toLocaleDateString('he-IL'):'...'}` : 'כל הזמנים'}</span>
+              </div>
             </div>
             <div style={{padding:'0 0 8px 0'}}>
               <table style={{width:'100%',borderCollapse:'collapse',fontSize:13}}>
@@ -2335,7 +2344,12 @@ function OrderForm({order, onSave, onClose}) {
                         <div className="fgroup" style={{marginBottom:0}}><label className="flbl" style={{fontSize:11}}>צד א — מלל</label><input className="finp" type="text" value={bag.phraseA||''} onChange={e=>{const b=[...f.bags];b[idx]={...b[idx],phraseA:e.target.value};set('bags',b);}} placeholder="המשפט על השקית"/></div>
                         <div className="fgroup" style={{marginBottom:0}}><label className="flbl" style={{fontSize:11}}>מספר תמונה</label><input className="finp" type="text" value={bag.imageNumA||''} onChange={e=>{const b=[...f.bags];b[idx]={...b[idx],imageNumA:e.target.value};set('bags',b);}} placeholder="1"/></div>
                         <div className="fgroup" style={{marginBottom:0}}><label className="flbl" style={{fontSize:11}}>צד ב — שמות</label><input className="finp" type="text" value={bag.namesB||''} onChange={e=>{const b=[...f.bags];b[idx]={...b[idx],namesB:e.target.value};set('bags',b);}} placeholder="שמות הזוג"/></div>
-                        <div className="fgroup" style={{marginBottom:0}}><label className="flbl" style={{fontSize:11}}>קוקטייל</label><input className="finp" type="text" value={bag.cocktailB||''} onChange={e=>{const b=[...f.bags];b[idx]={...b[idx],cocktailB:e.target.value};set('bags',b);}} placeholder="שם הקוקטייל"/></div>
+                        <div className="fgroup" style={{marginBottom:0}}><label className="flbl" style={{fontSize:11}}>קוקטייל</label>
+                          <select className="fsel" value={bag.cocktailB||''} onChange={e=>{const b=[...f.bags];b[idx]={...b[idx],cocktailB:e.target.value};set('bags',b);}}>
+                            <option value="">— ללא —</option>
+                            {COCKTAIL_TYPES.map(c=>{const ci=COCKTAIL_TYPES.indexOf(c);return <option key={c} value={c}>{c}</option>;})}
+                          </select>
+                        </div>
                         <div className="fgroup" style={{marginBottom:0}}><label className="flbl" style={{fontSize:11}}>כמות להדפסה</label><input className="finp" type="number" min="0" value={bag.quantity||100} onChange={e=>{const b=[...f.bags];b[idx]={...b[idx],quantity:Number(e.target.value)};set('bags',b);}} dir="ltr" style={{textAlign:'right'}}/></div>
                         <div className="fgroup" style={{marginBottom:0}}><label className="flbl" style={{fontSize:11}}>צריך תאריך?</label>
                           <button type="button" className={`pay-btn ${bag.needsDate?'pay-yes':'pay-no'}`} style={{width:'100%',justifyContent:'center',padding:'7px'}} onClick={()=>{const b=[...f.bags];b[idx]={...b[idx],needsDate:!bag.needsDate};set('bags',b);}}>
