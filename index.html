@@ -24,6 +24,8 @@
 
   <!-- JSZip — ZIP export -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <!-- EmailJS — שליחת מיילים מהדפדפן -->
+  <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
 
   <!-- React + Babel -->
   <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
@@ -565,14 +567,127 @@ function CalendarEventModal({date, event, onSave, onDelete, onClose}) {
   );
 }
 
+// ── Reminder Modal ──
+function ReminderModal({event, eventType, reminders, emailjsSettings, onSave, onDelete, onClose}) {
+  const eventDate = event?.eventDate || event?.date || '';
+  const defaultReminderDate = eventDate ? (() => {
+    const d = new Date(eventDate + 'T12:00:00');
+    d.setDate(d.getDate() - 1);
+    return d.toISOString().split('T')[0];
+  })() : new Date().toISOString().split('T')[0];
+
+  const [f, setF] = useState({
+    reminderDate: defaultReminderDate,
+    reminderTime: '09:00',
+    email: emailjsSettings?.defaultEmail || 'elram.malachi@gmail.com',
+    message: '',
+  });
+  const set = (k,v) => setF(p=>({...p,[k]:v}));
+  const eventTitle = eventType === 'order' ? event?.customerName : event?.title;
+  const eventReminders = (reminders||[]).filter(r => r.eventId === event?.id);
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (!f.reminderDate) return;
+    onSave({
+      eventId: event.id, eventType, eventTitle, eventDate,
+      reminderDate: f.reminderDate, reminderTime: f.reminderTime,
+      email: f.email || emailjsSettings?.defaultEmail || 'elram.malachi@gmail.com',
+      message: f.message, sent: false, createdAt: new Date().toISOString(),
+    });
+  };
+
+  const hasEjs = !!(emailjsSettings?.serviceId && emailjsSettings?.templateId && emailjsSettings?.publicKey);
+
+  return (
+    <div className="overlay" onClick={e=>{if(e.target===e.currentTarget)onClose();}}>
+      <div className="modal" style={{maxWidth:440}}>
+        <div className="modal-hdr">
+          <h2 className="modal-title">🔔 תזכורת ל{eventType==='order'?'הזמנה':'אירוע'}</h2>
+          <button className="modal-x" onClick={onClose}>✕</button>
+        </div>
+        <div className="modal-body">
+          <div style={{background:'var(--primary-light)',borderRadius:8,padding:'10px 14px',marginBottom:14}}>
+            <div style={{fontWeight:700,color:'var(--primary)'}}>{eventTitle||'—'}</div>
+            {eventDate && <div style={{fontSize:12,color:'var(--gray-500)',marginTop:2}}>{fmtDate(eventDate)}</div>}
+          </div>
+
+          {eventReminders.length > 0 && (
+            <div style={{marginBottom:14}}>
+              <div style={{fontWeight:600,fontSize:13,color:'var(--gray-600)',marginBottom:8}}>תזכורות קיימות:</div>
+              <div style={{display:'flex',flexDirection:'column',gap:6}}>
+                {eventReminders.map(r=>(
+                  <div key={r.id} style={{display:'flex',alignItems:'center',gap:10,padding:'8px 12px',background:r.sent?'var(--green-light)':'var(--amber-light)',borderRadius:8,border:`1px solid ${r.sent?'#6ee7b7':'#fcd34d'}`}}>
+                    <div style={{flex:1}}>
+                      <div style={{fontSize:13,fontWeight:600}}>{fmtDate(r.reminderDate)} {r.reminderTime&&`| ${r.reminderTime}`}</div>
+                      <div style={{fontSize:11,color:'var(--gray-500)'}}>{r.email}{r.sent?' ✅ נשלח':' ⏳ ממתין'}</div>
+                      {r.message && <div style={{fontSize:11,color:'var(--gray-600)',marginTop:2}}>"{r.message}"</div>}
+                    </div>
+                    {!r.sent && <button className="btn btn-del" style={{fontSize:11,padding:'3px 8px'}} onClick={()=>onDelete(r.id)}>🗑️</button>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <form onSubmit={handleSubmit}>
+            <div style={{fontWeight:600,fontSize:13,color:'var(--gray-600)',marginBottom:8}}>+ תזכורת חדשה:</div>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+              <div className="fgroup">
+                <label className="flbl">תאריך תזכורת *</label>
+                <input className="finp" type="date" value={f.reminderDate} onChange={e=>set('reminderDate',e.target.value)} required/>
+              </div>
+              <div className="fgroup">
+                <label className="flbl">שעה</label>
+                <input className="finp" type="time" value={f.reminderTime} onChange={e=>set('reminderTime',e.target.value)}/>
+              </div>
+            </div>
+            <div className="fgroup" style={{marginTop:8}}>
+              <label className="flbl">כתובת מייל</label>
+              <input className="finp" type="email" value={f.email} onChange={e=>set('email',e.target.value)} placeholder="elram.malachi@gmail.com"/>
+            </div>
+            <div className="fgroup" style={{marginTop:8}}>
+              <label className="flbl">הודעה (אופציונלי)</label>
+              <input className="finp" type="text" value={f.message} onChange={e=>set('message',e.target.value)} placeholder="הכן שקיות, צור קשר עם לקוח..."/>
+            </div>
+            {!hasEjs && (
+              <div style={{background:'var(--amber-light)',border:'1px solid #fcd34d',borderRadius:8,padding:'10px 12px',marginTop:10,fontSize:12,color:'#92400e'}}>
+                ⚠️ כדי לשלוח מיילים יש להגדיר EmailJS (לחץ על ⚙️ הגדרות EmailJS ביומן)
+              </div>
+            )}
+            <div className="modal-foot" style={{paddingTop:14,marginTop:14}}>
+              <button type="submit" className="btn btn-violet">🔔 שמור תזכורת</button>
+              <button type="button" className="btn btn-outline" onClick={onClose}>סגור</button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Calendar View ──
-function CalendarView({orders, calendarEvents, onEdit, onAddCalEvent, onEditCalEvent, onDeleteCalEvent}) {
+function CalendarView({orders, calendarEvents, reminders, emailjsSettings, onEdit, onAddCalEvent, onEditCalEvent, onDeleteCalEvent, onAddReminder, onDeleteReminder, onUpdateEmailjsSettings}) {
   const [cur, setCur] = useState(() => { const d=new Date(); d.setDate(1); return d; });
   const [showCalModal, setShowCalModal] = useState(false);
   const [calModalDate, setCalModalDate] = useState('');
   const [editingCalEvent, setEditingCalEvent] = useState(null);
+  const [showReminderModal, setShowReminderModal] = useState(false);
+  const [reminderEvent, setReminderEvent] = useState(null);
+  const [reminderEventType, setReminderEventType] = useState('order');
+  const [showEjsSettings, setShowEjsSettings] = useState(false);
+  const [ejsForm, setEjsForm] = useState({serviceId:'',templateId:'',publicKey:'',defaultEmail:'elram.malachi@gmail.com'});
   const year = cur.getFullYear();
   const month = cur.getMonth();
+
+  // Sync local ejs form when settings load
+  React.useEffect(()=>{ if(emailjsSettings) setEjsForm(s=>({...s,...emailjsSettings})); },[emailjsSettings]);
+
+  const openReminder = (evt, type, e) => {
+    if (e) e.stopPropagation();
+    setReminderEvent(evt); setReminderEventType(type); setShowReminderModal(true);
+  };
+  const hasEjs = !!(emailjsSettings?.serviceId && emailjsSettings?.templateId && emailjsSettings?.publicKey);
 
   const fixedCells = useMemo(() => {
     const firstDow = new Date(year, month, 1).getDay();
@@ -684,21 +799,25 @@ function CalendarView({orders, calendarEvents, onEdit, onAddCalEvent, onEditCalE
           {monthOrders.length>0 && (
             <div className="tbl-wrap">
               <table>
-                <thead><tr><th>לקוח</th><th>תאריך</th><th>סוג אירוע</th><th>שקיות</th><th>מיקום</th><th>איסוף/משלוח</th><th>סגר</th><th>סטטוס</th><th>הערות</th></tr></thead>
+                <thead><tr><th>לקוח</th><th>תאריך</th><th>סוג אירוע</th><th>שקיות</th><th>מיקום</th><th>איסוף/משלוח</th><th>סגר</th><th>סטטוס</th><th>הערות</th><th>🔔</th></tr></thead>
                 <tbody>
-                  {[...monthOrders].sort((a,b)=>new Date(a.eventDate)-new Date(b.eventDate)).map(o=>(
-                    <tr key={o.id} className="cursor-p" onClick={()=>onEdit(o)}>
-                      <td className="td-b">{o.customerName}</td>
-                      <td>{fmtDate(o.eventDate)}</td>
-                      <td style={{color:'var(--gray-500)',fontSize:12}}>{o.eventType||'—'}</td>
-                      <td className="td-c" style={{fontWeight:600}}>{o.bagCount}</td>
-                      <td style={{fontSize:12}}>{o.eventLocation||'—'}</td>
-                      <td>{o.deliveryType?<span style={{fontWeight:700,color:DELIVERY_TYPE_COLOR[o.deliveryType]||'var(--gray-600)'}}>{o.deliveryType}</span>:'—'}</td>
-                      <td><TeamTag who={o.closedBy}/></td>
-                      <td><Badge status={o.status}/></td>
-                      <td className="td-note" title={o.notes||''}>{o.notes||'—'}</td>
-                    </tr>
-                  ))}
+                  {[...monthOrders].sort((a,b)=>new Date(a.eventDate)-new Date(b.eventDate)).map(o=>{
+                    const hasReminder = (reminders||[]).some(r=>r.eventId===o.id&&!r.sent);
+                    return (
+                      <tr key={o.id} className="cursor-p" onClick={()=>onEdit(o)}>
+                        <td className="td-b">{o.customerName}</td>
+                        <td>{fmtDate(o.eventDate)}</td>
+                        <td style={{color:'var(--gray-500)',fontSize:12}}>{o.eventType||'—'}</td>
+                        <td className="td-c" style={{fontWeight:600}}>{o.bagCount}</td>
+                        <td style={{fontSize:12}}>{o.eventLocation||'—'}</td>
+                        <td>{o.deliveryType?<span style={{fontWeight:700,color:DELIVERY_TYPE_COLOR[o.deliveryType]||'var(--gray-600)'}}>{o.deliveryType}</span>:'—'}</td>
+                        <td><TeamTag who={o.closedBy}/></td>
+                        <td><Badge status={o.status}/></td>
+                        <td className="td-note" title={o.notes||''}>{o.notes||'—'}</td>
+                        <td className="td-c"><button className="btn-ghost" style={{fontSize:13,background:hasReminder?'var(--amber-light)':undefined,borderRadius:6,padding:'2px 6px'}} title="תזכורות" onClick={e=>openReminder(o,'order',e)}>{hasReminder?'🔔':'🔕'}</button></td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -707,23 +826,78 @@ function CalendarView({orders, calendarEvents, onEdit, onAddCalEvent, onEditCalE
             <div style={{padding:'8px 16px',borderTop: monthOrders.length>0?'1px solid var(--gray-100)':'none'}}>
               <div style={{fontWeight:700,fontSize:13,color:'#be185d',marginBottom:8}}>📌 אירועים ידניים</div>
               <div style={{display:'flex',flexDirection:'column',gap:6}}>
-                {[...monthManual].sort((a,b)=>a.date.localeCompare(b.date)).map(e=>(
-                  <div key={e.id} style={{display:'flex',alignItems:'center',gap:12,padding:'8px 12px',background:'#fdf2f8',borderRadius:8,border:'1px solid #fbcfe8'}}>
-                    <div style={{flex:1}}>
-                      <div style={{fontWeight:600,color:'#9d174d'}}>{e.title}</div>
-                      <div style={{fontSize:12,color:'var(--gray-500)',marginTop:2}}>
-                        {fmtDate(e.date)}{e.time?` | ${e.time}`:''}{e.notes?` | ${e.notes}`:''}
+                {[...monthManual].sort((a,b)=>a.date.localeCompare(b.date)).map(e=>{
+                  const hasReminder = (reminders||[]).some(r=>r.eventId===e.id&&!r.sent);
+                  return (
+                    <div key={e.id} style={{display:'flex',alignItems:'center',gap:12,padding:'8px 12px',background:'#fdf2f8',borderRadius:8,border:'1px solid #fbcfe8'}}>
+                      <div style={{flex:1}}>
+                        <div style={{fontWeight:600,color:'#9d174d'}}>{e.title}</div>
+                        <div style={{fontSize:12,color:'var(--gray-500)',marginTop:2}}>
+                          {fmtDate(e.date)}{e.time?` | ${e.time}`:''}{e.notes?` | ${e.notes}`:''}
+                        </div>
                       </div>
+                      <button className="btn-ghost" style={{fontSize:12}} title="תזכורת" onClick={ev=>openReminder(e,'manual',ev)}>{hasReminder?'🔔':'🔕'}</button>
+                      <button className="btn-ghost" style={{fontSize:12}} onClick={()=>openEdit(e)}>✏️</button>
+                      <button className="btn-del" onClick={()=>{if(window.confirm('למחוק אירוע זה?'))onDeleteCalEvent(e.id);}}>🗑️</button>
                     </div>
-                    <button className="btn-ghost" style={{fontSize:12}} onClick={()=>openEdit(e)}>✏️</button>
-                    <button className="btn-del" onClick={()=>{if(window.confirm('למחוק אירוע זה?'))onDeleteCalEvent(e.id);}}>🗑️</button>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}
         </div>
       )}
+
+      {/* EmailJS Settings */}
+      <div className="card" style={{borderTop:'3px solid var(--primary)'}}>
+        <div className="card-hdr" style={{cursor:'pointer'}} onClick={()=>setShowEjsSettings(v=>!v)}>
+          <span className="card-title">⚙️ הגדרות EmailJS (שליחת תזכורות למייל)</span>
+          <span style={{marginRight:'auto',color:hasEjs?'var(--green)':'var(--amber)',fontWeight:700,fontSize:12}}>
+            {hasEjs?'✅ מחובר':'⚠️ לא מוגדר'}
+          </span>
+          <button className="btn-ghost" style={{fontSize:12,marginRight:8}}>{showEjsSettings?'▲ סגור':'▼ פתח'}</button>
+        </div>
+        {showEjsSettings && (
+          <div style={{padding:'16px 20px 20px'}}>
+            <div style={{background:'var(--blue-light)',borderRadius:8,padding:'10px 14px',marginBottom:14,fontSize:12,color:'var(--blue)'}}>
+              <b>כיצד להגדיר:</b><br/>
+              1. צור חשבון ב־<a href="https://www.emailjs.com" target="_blank" rel="noreferrer" style={{color:'inherit'}}>emailjs.com</a> (חינמי — 200 מיילים/חודש)<br/>
+              2. הוסף Email Service (Gmail מומלץ) → קבל Service ID<br/>
+              3. צור Email Template עם המשתנים: <code>{'{{event_title}}'}</code>, <code>{'{{event_date}}'}</code>, <code>{'{{reminder_message}}'}</code>, <code>{'{{to_email}}'}</code><br/>
+              4. מ-Account → API Keys קבל את ה-Public Key
+            </div>
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+              <div className="fgroup">
+                <label className="flbl">Service ID</label>
+                <input className="finp" type="text" value={ejsForm.serviceId} onChange={e=>setEjsForm(f=>({...f,serviceId:e.target.value}))} placeholder="service_xxxxxxx"/>
+              </div>
+              <div className="fgroup">
+                <label className="flbl">Template ID</label>
+                <input className="finp" type="text" value={ejsForm.templateId} onChange={e=>setEjsForm(f=>({...f,templateId:e.target.value}))} placeholder="template_xxxxxxx"/>
+              </div>
+              <div className="fgroup">
+                <label className="flbl">Public Key</label>
+                <input className="finp" type="text" value={ejsForm.publicKey} onChange={e=>setEjsForm(f=>({...f,publicKey:e.target.value}))} placeholder="xxxxxxxxxxxxxxxxxxxx"/>
+              </div>
+              <div className="fgroup">
+                <label className="flbl">מייל ברירת מחדל</label>
+                <input className="finp" type="email" value={ejsForm.defaultEmail} onChange={e=>setEjsForm(f=>({...f,defaultEmail:e.target.value}))} placeholder="elram.malachi@gmail.com"/>
+              </div>
+            </div>
+            <div style={{display:'flex',gap:10,marginTop:12}}>
+              <button className="btn btn-violet" onClick={()=>{onUpdateEmailjsSettings(ejsForm);setShowEjsSettings(false);alert('✅ הגדרות EmailJS נשמרו!');}}>💾 שמור הגדרות</button>
+              {hasEjs && <button className="btn btn-outline" onClick={()=>{
+                const ejs = emailjsSettings;
+                emailjs.send(ejs.serviceId, ejs.templateId, {
+                  to_email: ejs.defaultEmail || 'elram.malachi@gmail.com',
+                  event_title: 'בדיקת תזכורת', event_date: fmtDate(new Date().toISOString().split('T')[0]),
+                  reminder_message: 'זוהי הודעת בדיקה ממנהל ההזמנות שלך 🍹',
+                }, ejs.publicKey).then(()=>alert('✅ מייל בדיקה נשלח!')).catch(e=>alert('❌ שגיאה: '+e.text));
+              }}>📧 שלח מייל בדיקה</button>}
+            </div>
+          </div>
+        )}
+      </div>
 
       {showCalModal && (
         <CalendarEventModal
@@ -736,6 +910,17 @@ function CalendarView({orders, calendarEvents, onEdit, onAddCalEvent, onEditCalE
           }}
           onDelete={(id) => { onDeleteCalEvent(id); setShowCalModal(false); }}
           onClose={()=>setShowCalModal(false)}
+        />
+      )}
+      {showReminderModal && reminderEvent && (
+        <ReminderModal
+          event={reminderEvent}
+          eventType={reminderEventType}
+          reminders={reminders}
+          emailjsSettings={emailjsSettings}
+          onSave={(data) => { onAddReminder(data); setShowReminderModal(false); }}
+          onDelete={(id) => onDeleteReminder(id)}
+          onClose={()=>setShowReminderModal(false)}
         />
       )}
     </div>
@@ -2721,11 +2906,12 @@ function App() {
   const [orders, setOrders] = useState([]);
   const [transactions, setTransactions] = useState([]);
   const [calendarEvents, setCalendarEvents] = useState([]);
+  const [reminders, setReminders] = useState([]);
   const [deliveries, setDeliveries] = useState([]);
   const [monthlyExpenses, setMonthlyExpenses] = useState({});
   const [monthlySettings, setMonthlySettings] = useState({});
   const [fixedExpenses, setFixedExpenses] = useState([]);
-  const [settings, setSettings] = useState({marketing: 2500, extraItems: [], monthlyFixed: 0});
+  const [settings, setSettings] = useState({marketing: 2500, extraItems: [], monthlyFixed: 0, emailjs: {serviceId:'',templateId:'',publicKey:'',defaultEmail:'elram.malachi@gmail.com'}});
   const [loading, setLoading] = useState(false);
   const [unlocked, setUnlocked] = useState(() => !!localStorage.getItem('bb_auth'));
   const [connected, setConnected] = useState(false);
@@ -2758,6 +2944,7 @@ function App() {
           marketing: data.marketing !== undefined ? data.marketing : 2500,
           extraItems: data.extraItems ? Object.values(data.extraItems) : [],
           monthlyFixed: data.monthlyFixed !== undefined ? data.monthlyFixed : 0,
+          emailjs: data.emailjs || {serviceId:'',templateId:'',publicKey:'',defaultEmail:'elram.malachi@gmail.com'},
         });
       }
     });
@@ -2772,6 +2959,12 @@ function App() {
     calRef.on('value', snap => {
       const data = snap.val() || {};
       setCalendarEvents(Object.entries(data).map(([id, e]) => ({...e, id})));
+    });
+
+    const remRef = db.ref('reminders');
+    remRef.on('value', snap => {
+      const data = snap.val() || {};
+      setReminders(Object.entries(data).map(([id, r]) => ({...r, id})));
     });
 
     const delRef = db.ref('deliveries');
@@ -2792,7 +2985,7 @@ function App() {
       setFixedExpenses(Object.entries(data).map(([id, e]) => ({...e, id})));
     });
 
-    return () => { connRef.off(); ordersRef.off(); settingsRef.off(); txRef.off(); calRef.off(); delRef.off(); meRef.off(); msRef.off(); feRef.off(); };
+    return () => { connRef.off(); ordersRef.off(); settingsRef.off(); txRef.off(); calRef.off(); remRef.off(); delRef.off(); meRef.off(); msRef.off(); feRef.off(); };
   }, [db]);
 
   const handleUpdateSettings = (newSettings) => {
@@ -2803,7 +2996,7 @@ function App() {
       monthlyFixed: newSettings.monthlyFixed || 0,
       extraItems: newSettings.extraItems.reduce((acc,item,i) => ({...acc, [item.id||i]: item}), {})
     };
-    db.ref('settings').set(toSave);
+    db.ref('settings').update(toSave);
   };
 
   const filtered = useMemo(() => orders.filter(o => {
@@ -2927,6 +3120,46 @@ function App() {
   const handleAdd = () => { setEditing(null); setShowForm(true); };
   const handleClose = () => { setShowForm(false); setEditing(null); };
 
+  // ── Reminders / EmailJS ──
+  const handleAddReminder = (data) => { if (!db) return; db.ref('reminders').push(data); };
+  const handleDeleteReminder = (id) => {
+    if (!db) return;
+    if (window.confirm('למחוק תזכורת זו?')) db.ref('reminders').child(id).remove();
+  };
+  const handleUpdateEmailjsSettings = (ejsData) => {
+    if (!db) return;
+    db.ref('settings/emailjs').set(ejsData);
+  };
+
+  // Auto-send due reminders
+  const sendingRemindersRef = useRef(new Set());
+  useEffect(() => {
+    if (!db || !connected) return;
+    const ejs = settings.emailjs;
+    if (!ejs?.serviceId || !ejs?.templateId || !ejs?.publicKey) return;
+    const today = new Date().toISOString().split('T')[0];
+    const due = reminders.filter(r => !r.sent && r.reminderDate <= today && !sendingRemindersRef.current.has(r.id));
+    if (due.length === 0) return;
+    due.forEach(r => {
+      sendingRemindersRef.current.add(r.id);
+      const params = {
+        to_email: r.email || ejs.defaultEmail || 'elram.malachi@gmail.com',
+        event_title: r.eventTitle || '',
+        event_date: fmtDate(r.eventDate) || '',
+        reminder_message: r.message || '',
+        reminder_time: r.reminderTime || '',
+      };
+      emailjs.send(ejs.serviceId, ejs.templateId, params, ejs.publicKey)
+        .then(() => {
+          db.ref('reminders').child(r.id).update({ sent: true, sentAt: new Date().toISOString() });
+        })
+        .catch(err => {
+          console.error('EmailJS send error:', err);
+          sendingRemindersRef.current.delete(r.id);
+        });
+    });
+  }, [reminders, connected, settings.emailjs, db]);
+
   // ── Backup / Restore ──
   const backupInputRef = useRef(null);
 
@@ -3031,7 +3264,7 @@ function App() {
         {tab==='dashboard' && <Dashboard orders={orders} settings={settings} onUpdateSettings={handleUpdateSettings} onAdd={handleAdd} onEdit={handleEdit}/>}
         {tab==='orders'    && <OrdersTable orders={filtered} allOrders={orders} filters={filters} onFilter={setFilters} onEdit={handleEdit} onDelete={handleDelete} onAdd={handleAdd} onQuickUpdate={handleQuickUpdate}/>}
         {tab==='monthly'   && <MonthlyStats orders={orders} transactions={transactions} settings={settings} onUpdateSettings={handleUpdateSettings} monthlyExpenses={monthlyExpenses} onAddMonthlyExpense={handleAddMonthlyExpense} onDeleteMonthlyExpense={handleDeleteMonthlyExpense} monthlySettings={monthlySettings} onUpdateMonthlySetting={handleUpdateMonthlySetting} onAddCostItem={handleAddMonthlyCostItem} onDeleteCostItem={handleDeleteMonthlyCostItem} fixedExpenses={fixedExpenses}/>}
-        {tab==='calendar'  && <CalendarView orders={orders} calendarEvents={calendarEvents} onEdit={handleEdit} onAddCalEvent={handleAddCalEvent} onEditCalEvent={handleEditCalEvent} onDeleteCalEvent={handleDeleteCalEvent}/>}
+        {tab==='calendar'  && <CalendarView orders={orders} calendarEvents={calendarEvents} reminders={reminders} emailjsSettings={settings.emailjs} onEdit={handleEdit} onAddCalEvent={handleAddCalEvent} onEditCalEvent={handleEditCalEvent} onDeleteCalEvent={handleDeleteCalEvent} onAddReminder={handleAddReminder} onDeleteReminder={handleDeleteReminder} onUpdateEmailjsSettings={handleUpdateEmailjsSettings}/>}
         {tab==='bags'      && <BagsView orders={orders} onUpdateBag={handleUpdateBag} onAddBag={handleAddBag}/>}
         {tab==='delivery'  && <DeliveryView orders={orders} onQuickUpdate={handleQuickUpdate}/>}
         {tab==='finance'   && <TransactionsView transactions={transactions} onAdd={handleAddTransaction} onDelete={handleDeleteTransaction} onUpdate={handleUpdateTransaction} fixedExpenses={fixedExpenses} onAddFixedExpense={handleAddFixedExpense} onDeleteFixedExpense={handleDeleteFixedExpense}/>}
