@@ -1596,13 +1596,15 @@ function BagsView({orders, onUpdateBag, onAddBag}) {
   // סינון נוסף לפי לקוח
   const filtered = filter ? dateFilteredBags.filter(b=>b.customerName?.includes(filter)) : dateFilteredBags;
 
-  // סיכום קוקטיילים — מבוסס על dateFilteredBags
+  // סיכום קוקטיילים — מבוסס על dateFilteredBags, תמיד כולל את כל 7 הקוקטיילים
   const cocktailStats = useMemo(() => {
     const stats = {};
+    // אתחול עם 0 לכל קוקטייל
+    COCKTAIL_TYPES.forEach(c => { stats[c] = {count:0, bags:0}; });
     dateFilteredBags.forEach(bag => {
       const key = normalizeCocktail(bag.cocktailB);
       if (!key) return;
-      if (!stats[key]) stats[key] = {count:0,bags:0};
+      if (!stats[key]) stats[key] = {count:0, bags:0};
       stats[key].count++;
       stats[key].bags += Number(bag.quantity)||0;
     });
