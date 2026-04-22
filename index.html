@@ -2272,6 +2272,193 @@ function OrdersTable({orders, allOrders, filters, onFilter, onEdit, onDelete, on
   );
 }
 
+// ── Production Queue View ──
+function ProductionView({orders, productionQueue, onToggleQueue, onClearQueue}) {
+  const [search, setSearch] = useState('');
+  const [showCompleted, setShowCompleted] = useState(false);
+
+  const selectedIds = useMemo(() => new Set(Object.keys(productionQueue||{})), [productionQueue]);
+  const selectedOrders = useMemo(() => orders.filter(o => selectedIds.has(o.id)), [orders, selectedIds]);
+
+  const availableOrders = useMemo(() => {
+    return orders.filter(o => {
+      if (!showCompleted && o.status === 'completed') return false;
+      if (search && !o.customerName?.includes(search) && !(o.eventType||'').includes(search)) return false;
+      return true;
+    }).sort((a,b) => {
+      const aS = selectedIds.has(a.id)?0:1, bS = selectedIds.has(b.id)?0:1;
+      if (aS!==bS) return aS-bS;
+      return (a.eventDate||'').localeCompare(b.eventDate||'');
+    });
+  }, [orders, selectedIds, search, showCompleted]);
+
+  const cocktailTotals = useMemo(() => {
+    const stats = {};
+    COCKTAIL_TYPES.forEach(c => { stats[c] = {bags:0}; });
+    selectedOrders.forEach(order => {
+      const bags = order.bags ? (Array.isArray(order.bags)?order.bags:Object.values(order.bags)) : [];
+      bags.forEach(bag => {
+        const key = normalizeCocktail(bag.cocktailB);
+        if (!key) return;
+        if (!stats[key]) stats[key] = {bags:0};
+        stats[key].bags += Number(bag.quantity)||0;
+      });
+    });
+    return Object.entries(stats).sort((a,b)=>b[1].bags-a[1].bags);
+  }, [selectedOrders]);
+
+  const totalBags = cocktailTotals.reduce((s,[,v])=>s+v.bags, 0);
+  const totalLiters = (totalBags * ML_PER_BAG / 1000).toFixed(1);
+  const noBagsOrders = selectedOrders.filter(o => {
+    const bags = o.bags?(Array.isArray(o.bags)?o.bags:Object.values(o.bags)):[];
+    return bags.length===0;
+  });
+
+  return (
+    <div style={{display:'flex',flexDirection:'column',gap:16}}>
+
+      {/* Stats bar */}
+      {selectedOrders.length>0 && (
+        <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(140px,1fr))',gap:12}}>
+          <div className="stat-card"><div className="stat-val">{selectedOrders.length}</div><div className="stat-lbl">אירועים נבחרים</div></div>
+          <div className="stat-card"><div className="stat-val">{totalBags.toLocaleString()}</div><div className="stat-lbl">סה״כ שקיות</div></div>
+          <div className="stat-card"><div className="stat-val">{totalLiters} ל׳</div><div className="stat-lbl">סה״כ ליטר</div></div>
+        </div>
+      )}
+
+      <div style={{display:'grid',gridTemplateColumns:'340px 1fr',gap:16,alignItems:'start'}}>
+
+        {/* ── Order selector ── */}
+        <div className="card" style={{position:'sticky',top:80}}>
+          <div className="card-hdr">
+            <span className="card-title">📋 בחר אירועים</span>
+            {selectedIds.size>0 && (
+              <button className="btn btn-sm btn-outline" style={{marginRight:'auto',fontSize:11}} onClick={onClearQueue}>נקה הכל ({selectedIds.size})</button>
+            )}
+          </div>
+          <div style={{padding:'8px 12px',borderBottom:'1px solid var(--gray-100)',display:'flex',gap:8,alignItems:'center'}}>
+            <input className="finp" type="text" placeholder="חיפוש..." value={search} onChange={e=>setSearch(e.target.value)} style={{flex:1,fontSize:13,padding:'6px 10px'}}/>
+            <label style={{fontSize:11,color:'var(--gray-500)',display:'flex',alignItems:'center',gap:4,whiteSpace:'nowrap',cursor:'pointer'}}>
+              <input type="checkbox" checked={showCompleted} onChange={e=>setShowCompleted(e.target.checked)}/> הכל
+            </label>
+          </div>
+          <div style={{maxHeight:520,overflowY:'auto'}}>
+            {availableOrders.map(o => {
+              const isSelected = selectedIds.has(o.id);
+              const bags = o.bags?(Array.isArray(o.bags)?o.bags:Object.values(o.bags)):[];
+              const bagTotal = bags.reduce((s,b)=>s+(Number(b.quantity)||0),0);
+              return (
+                <div key={o.id} onClick={()=>onToggleQueue(o.id,!isSelected)}
+                  style={{display:'flex',alignItems:'center',gap:10,padding:'10px 14px',
+                    borderBottom:'1px solid var(--gray-100)',cursor:'pointer',
+                    background:isSelected?'#eef2ff':undefined,
+                    borderRight:isSelected?'3px solid var(--primary)':'3px solid transparent',
+                  }}>
+                  <input type="checkbox" checked={isSelected} onChange={()=>{}} style={{accentColor:'var(--primary)',width:16,height:16,flexShrink:0}}/>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontWeight:600,fontSize:13,color:isSelected?'var(--primary)':'var(--gray-800)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
+                      {o.customerName}
+                    </div>
+                    <div style={{fontSize:11,color:'var(--gray-400)',marginTop:1}}>
+                      {fmtDate(o.eventDate)}{o.eventType?` · ${o.eventType}`:''} · {bagTotal||o.bagCount||0} שק׳
+                    </div>
+                  </div>
+                  <Badge status={o.status}/>
+                </div>
+              );
+            })}
+            {availableOrders.length===0 && (
+              <div style={{padding:24,textAlign:'center',color:'var(--gray-400)',fontSize:13}}>אין הזמנות</div>
+            )}
+          </div>
+        </div>
+
+        {/* ── Summary ── */}
+        <div style={{display:'flex',flexDirection:'column',gap:16}}>
+          {selectedOrders.length===0 ? (
+            <div className="card" style={{padding:48,textAlign:'center',color:'var(--gray-400)'}}>
+              <div style={{fontSize:52,marginBottom:12}}>🏭</div>
+              <div style={{fontWeight:700,fontSize:16,marginBottom:6,color:'var(--gray-600)'}}>בחר אירועים לייצור</div>
+              <div style={{fontSize:13}}>סמן הזמנות מהרשימה משמאל</div>
+            </div>
+          ) : (<>
+
+            {/* Cocktail cards */}
+            <div className="card">
+              <div className="card-hdr"><span className="card-title">🍸 סיכום קוקטיילים</span></div>
+              <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(175px,1fr))',gap:10,padding:'12px 16px'}}>
+                {cocktailTotals.map(([name,s])=>{
+                  const cidx=COCKTAIL_TYPES.indexOf(name);
+                  const liters=(s.bags*ML_PER_BAG/1000).toFixed(1);
+                  return (
+                    <div key={name} style={{background:s.bags>0?'var(--gray-50)':'#fafafa',border:`1px solid ${s.bags>0?'var(--gray-200)':'var(--gray-100)'}`,borderRadius:10,padding:'12px 14px',opacity:s.bags>0?1:0.4}}>
+                      <span className={`chip chip-${cidx>=0?cidx%7:0}`}>{name}</span>
+                      <div style={{fontSize:16,fontWeight:700,color:'var(--gray-800)',marginTop:8}}>{s.bags.toLocaleString()} שק׳</div>
+                      <div style={{fontSize:12,color:'var(--gray-500)'}}>{liters} ליטר</div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Per-order table */}
+            <div className="card">
+              <div className="card-hdr"><span className="card-title">📦 פירוט לפי הזמנה</span></div>
+              <div className="tbl-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>לקוח</th><th>תאריך</th><th>סוג</th>
+                      {COCKTAIL_TYPES.map(c=><th key={c} style={{fontSize:10,maxWidth:72,whiteSpace:'normal',lineHeight:1.2}}>{c}</th>)}
+                      <th>סה״כ שק׳</th><th>סה״כ ל׳</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[...selectedOrders].sort((a,b)=>(a.eventDate||'').localeCompare(b.eventDate||'')).map(order=>{
+                      const bags=order.bags?(Array.isArray(order.bags)?order.bags:Object.values(order.bags)):[];
+                      const pc={};
+                      bags.forEach(b=>{const k=normalizeCocktail(b.cocktailB);if(k)pc[k]=(pc[k]||0)+(Number(b.quantity)||0);});
+                      const rowTotal=Object.values(pc).reduce((s,v)=>s+v,0)||order.bagCount||0;
+                      const rowLiters=(rowTotal*ML_PER_BAG/1000).toFixed(1);
+                      return (
+                        <tr key={order.id}>
+                          <td className="td-b">{order.customerName}</td>
+                          <td>{fmtDate(order.eventDate)}</td>
+                          <td style={{fontSize:12,color:'var(--gray-500)'}}>{order.eventType||'—'}</td>
+                          {COCKTAIL_TYPES.map(c=>(
+                            <td key={c} className="td-c" style={{fontWeight:pc[c]?700:400,color:pc[c]?'var(--primary)':'var(--gray-300)'}}>
+                              {pc[c]||'—'}
+                            </td>
+                          ))}
+                          <td className="td-c" style={{fontWeight:700}}>{rowTotal||'—'}</td>
+                          <td className="td-c" style={{color:'var(--gray-500)'}}>{rowLiters}</td>
+                        </tr>
+                      );
+                    })}
+                    {/* Totals row */}
+                    <tr style={{background:'#eef2ff',fontWeight:700,borderTop:'2px solid #c7d2fe'}}>
+                      <td colSpan={3} style={{fontWeight:700,color:'var(--primary)'}}>סה״כ</td>
+                      {COCKTAIL_TYPES.map(c=>{const t=cocktailTotals.find(([n])=>n===c)?.[1]?.bags||0;return<td key={c} className="td-c" style={{color:t?'var(--primary)':'var(--gray-300)'}}>{t||'—'}</td>;})}
+                      <td className="td-c" style={{color:'var(--primary)'}}>{totalBags||'—'}</td>
+                      <td className="td-c" style={{color:'var(--gray-500)'}}>{totalLiters}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              {noBagsOrders.length>0 && (
+                <div style={{padding:'8px 16px',background:'var(--amber-light)',borderTop:'1px solid #fcd34d',fontSize:12,color:'#92400e'}}>
+                  ⚠️ אין פירוט שקיות להזמנות: {noBagsOrders.map(o=>o.customerName).join(', ')} — מוצג סה״כ שקיות בלבד
+                </div>
+              )}
+            </div>
+
+          </>)}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Order Form ──
 // ── DocsView ──
 function DocsView({orders, onEdit}) {
@@ -2960,6 +3147,7 @@ function App() {
   const [transactions, setTransactions] = useState([]);
   const [calendarEvents, setCalendarEvents] = useState([]);
   const [reminders, setReminders] = useState([]);
+  const [productionQueue, setProductionQueue] = useState({});
   const [deliveries, setDeliveries] = useState([]);
   const [monthlyExpenses, setMonthlyExpenses] = useState({});
   const [monthlySettings, setMonthlySettings] = useState({});
@@ -3020,6 +3208,9 @@ function App() {
       setReminders(Object.entries(data).map(([id, r]) => ({...r, id})));
     });
 
+    const pqRef = db.ref('productionQueue');
+    pqRef.on('value', snap => setProductionQueue(snap.val() || {}));
+
     const delRef = db.ref('deliveries');
     delRef.on('value', snap => {
       const data = snap.val() || {};
@@ -3038,7 +3229,7 @@ function App() {
       setFixedExpenses(Object.entries(data).map(([id, e]) => ({...e, id})));
     });
 
-    return () => { connRef.off(); ordersRef.off(); settingsRef.off(); txRef.off(); calRef.off(); remRef.off(); delRef.off(); meRef.off(); msRef.off(); feRef.off(); };
+    return () => { connRef.off(); ordersRef.off(); settingsRef.off(); txRef.off(); calRef.off(); remRef.off(); pqRef.off(); delRef.off(); meRef.off(); msRef.off(); feRef.off(); };
   }, [db]);
 
   const handleUpdateSettings = (newSettings) => {
@@ -3179,6 +3370,16 @@ function App() {
     if (!db) return;
     if (window.confirm('למחוק תזכורת זו?')) db.ref('reminders').child(id).remove();
   };
+  const handleToggleProductionQueue = (orderId, inQueue) => {
+    if (!db) return;
+    if (inQueue) db.ref('productionQueue').child(orderId).set(true);
+    else db.ref('productionQueue').child(orderId).remove();
+  };
+  const handleClearProductionQueue = () => {
+    if (!db) return;
+    if (window.confirm('לנקות את כל הבחירות?')) db.ref('productionQueue').remove();
+  };
+
   const handleUpdateEmailjsSettings = (ejsData) => {
     if (!db) return;
     db.ref('settings/emailjs').set(ejsData);
@@ -3281,6 +3482,7 @@ function App() {
     {id:'monthly',   label:'📅  סיכום חודשי'},
     {id:'calendar',  label:'🗓️  יומן'},
     {id:'bags',      label:'🛍️  שקיות'},
+    {id:'production', label:'🏭  ייצור קרוב'},
     {id:'delivery',  label:'🚚  משלוח/איסוף'},
     {id:'finance',   label:'💳  הוצאות/הכנסות'},
     {id:'docs',      label:'📄  מסמכים'},
@@ -3319,6 +3521,7 @@ function App() {
         {tab==='monthly'   && <MonthlyStats orders={orders} transactions={transactions} settings={settings} onUpdateSettings={handleUpdateSettings} monthlyExpenses={monthlyExpenses} onAddMonthlyExpense={handleAddMonthlyExpense} onDeleteMonthlyExpense={handleDeleteMonthlyExpense} monthlySettings={monthlySettings} onUpdateMonthlySetting={handleUpdateMonthlySetting} onAddCostItem={handleAddMonthlyCostItem} onDeleteCostItem={handleDeleteMonthlyCostItem} fixedExpenses={fixedExpenses}/>}
         {tab==='calendar'  && <CalendarView orders={orders} calendarEvents={calendarEvents} reminders={reminders} emailjsSettings={settings.emailjs} onEdit={handleEdit} onAddCalEvent={handleAddCalEvent} onEditCalEvent={handleEditCalEvent} onDeleteCalEvent={handleDeleteCalEvent} onAddReminder={handleAddReminder} onDeleteReminder={handleDeleteReminder} onUpdateEmailjsSettings={handleUpdateEmailjsSettings}/>}
         {tab==='bags'      && <BagsView orders={orders} onUpdateBag={handleUpdateBag} onAddBag={handleAddBag}/>}
+        {tab==='production' && <ProductionView orders={orders} productionQueue={productionQueue} onToggleQueue={handleToggleProductionQueue} onClearQueue={handleClearProductionQueue}/>}
         {tab==='delivery'  && <DeliveryView orders={orders} onQuickUpdate={handleQuickUpdate}/>}
         {tab==='finance'   && <TransactionsView transactions={transactions} onAdd={handleAddTransaction} onDelete={handleDeleteTransaction} onUpdate={handleUpdateTransaction} fixedExpenses={fixedExpenses} onAddFixedExpense={handleAddFixedExpense} onDeleteFixedExpense={handleDeleteFixedExpense}/>}
         {tab==='docs'      && <DocsView orders={orders} onEdit={handleEdit}/>}
