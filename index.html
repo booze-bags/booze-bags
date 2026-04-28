@@ -457,6 +457,29 @@ const TEAM = ['בוזבאגס', 'מלאכי', 'יותם'];
 const TEAM_CLOSER = ['מלאכי', 'יותם', 'טל', 'מאיה'];
 const DOW_HE = ['א','ב','ג','ד','ה','ו','ש'];
 
+// ── Approval constants & helpers ──
+const APPROVAL_BASE_URL = 'https://elrammalachi-lab.github.io/booze-bags/approval.html';
+const APPROVAL_STATUS_LABELS = {
+  pending:'ממתין לאישור', viewed:'נצפה', verified:'מאומת',
+  approved:'אושר ✅', rejected:'נדרשים שינויים', expired:'פג תוקף',
+  superseded:'גרסה ישנה', blocked:'חסום', draft:'טיוטה',
+};
+const APPROVAL_STATUS_COLORS = {
+  pending:'#d97706', viewed:'#2563eb', verified:'#7c3aed',
+  approved:'#059669', rejected:'#dc2626', expired:'#94a3b8',
+  superseded:'#94a3b8', blocked:'#dc2626', draft:'#94a3b8',
+};
+const genToken = () => crypto.randomUUID().replace(/-/g,'');
+const genOTP   = () => String(Math.floor(100000 + Math.random() * 900000));
+const hashObj  = async (obj) => {
+  const text = JSON.stringify(obj, Object.keys(obj).sort());
+  const buf  = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+  return Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('');
+};
+const fmtDateTime = (ts) => ts
+  ? new Date(ts).toLocaleString('he-IL',{timeZone:'Asia/Jerusalem',day:'2-digit',month:'2-digit',year:'numeric',hour:'2-digit',minute:'2-digit'})
+  : '—';
+
 // ── Helpers ──
 const fmt = (n) => `₪${Number(n || 0).toLocaleString('he-IL')}`;
 const fmtDate = (s) => { if (!s) return '—'; return new Date(s).toLocaleDateString('he-IL',{day:'2-digit',month:'2-digit',year:'numeric'}); };
@@ -2148,7 +2171,7 @@ function Dashboard({orders, settings, onUpdateSettings, onAdd, onEdit}) {
 }
 
 // ── Orders Table ──
-function OrdersTable({orders, allOrders, filters, onFilter, onEdit, onDelete, onAdd, onQuickUpdate}) {
+function OrdersTable({orders, allOrders, filters, onFilter, onEdit, onDelete, onAdd, onQuickUpdate, onOpenApproval, approvalRequests}) {
   const monthOpts = useMemo(()=>{const s=new Set();allOrders.forEach(o=>{if(o.eventDate)s.add(o.eventDate.substring(0,7));});return[...s].sort().reverse();},[allOrders]);
   const totals = useMemo(()=>orders.reduce((a,o)=>({rev:a.rev+revenue(o),bags:a.bags+(Number(o.bagCount)||0),advPaid:a.advPaid+(o.advancePaid?1:0),balPaid:a.balPaid+(o.balancePaid?1:0)}),{rev:0,bags:0,advPaid:0,balPaid:0}),[orders]);
   const hasF = filters.month||filters.status||filters.closedBy||filters.dateFrom||filters.dateTo;
@@ -2260,13 +2283,313 @@ function OrdersTable({orders, allOrders, filters, onFilter, onEdit, onDelete, on
                 <td><TeamTag who={o.closedBy}/></td>
                 <td><Badge status={o.status}/></td>
                 <td className="td-note" title={o.notes||''}>{o.notes||'—'}</td>
-                <td><div className="actions"><button className="btn-ghost" onClick={()=>onEdit(o)}>✏️</button><button className="btn-del" onClick={()=>onDelete(o.id)}>🗑️</button></div></td>
+                <td><div className="actions">
+                  {onOpenApproval && (() => {
+                    const reqs = Object.values(approvalRequests||{}).filter(r=>r.orderId===o.id);
+                    const approved = reqs.some(r=>r.status==='approved');
+                    const pending  = reqs.some(r=>['pending','viewed','verified'].includes(r.status));
+                    const rejected = reqs.some(r=>r.status==='rejected');
+                    const icon = approved?'✅':pending?'⏳':rejected?'❌':'📋';
+                    const title = approved?'אושר':pending?'ממתין לאישור':rejected?'נדרשים שינויים':'שלח לאישור';
+                    return <button className="btn-ghost" title={title} style={{opacity:1}} onClick={e=>{e.stopPropagation();onOpenApproval(o);}}>{icon}</button>;
+                  })()}
+                  <button className="btn-ghost" onClick={()=>onEdit(o)}>✏️</button>
+                  <button className="btn-del" onClick={()=>onDelete(o.id)}>🗑️</button>
+                </div></td>
               </tr>);
               return rows;
               });
             })()}</tbody>
           </table></div>
         )}
+      </div>
+    </div>
+  );
+}
+
+// ── Approval Modal (CRM side) ──
+function ApprovalModal({order, db, approvalRequests, approvalEvents, onClose}) {
+  const [tab, setTab]           = useState('current');
+  const [generating, setGen]    = useState(false);
+  const [fresh, setFresh]       = useState(null); // just-generated {token,otp,hash}
+  const [copied, setCopied]     = useState('');
+
+  // All requests for this order, newest first
+  const requests = useMemo(() =>
+    Object.entries(approvalRequests||{})
+      .map(([id,r])=>({...r,id}))
+      .filter(r=>r.orderId===order.id)
+      .sort((a,b)=>new Date(b.createdAt)-new Date(a.createdAt)),
+  [approvalRequests, order.id]);
+
+  const active = requests.find(r=>!['superseded','expired','blocked'].includes(r.status));
+
+  const events = useMemo(()=>
+    Object.values((approvalEvents||{})[order.id]||{})
+      .sort((a,b)=>new Date(b.ts)-new Date(a.ts)),
+  [approvalEvents, order.id]);
+
+  const copy = (text, key) => {
+    navigator.clipboard.writeText(text);
+    setCopied(key); setTimeout(()=>setCopied(''),2000);
+  };
+
+  const handleGenerate = async () => {
+    setGen(true); setFresh(null);
+    try {
+      // 1. Snapshot (strip large base64 images to keep size reasonable)
+      const rawBags = order.bags
+        ? (Array.isArray(order.bags)?order.bags:Object.values(order.bags))
+        : [];
+      const snapshot = {
+        customerName:   order.customerName||'',
+        phone:          order.phone||'',
+        eventType:      order.eventType||'',
+        eventDate:      order.eventDate||'',
+        eventLocation:  order.eventLocation||'',
+        deliveryType:   order.deliveryType||'',
+        bagCount:       order.bagCount||0,
+        packagePrice:   order.packagePrice||0,
+        extras:         order.extras||0,
+        advanceAmount:  order.advanceAmount||0,
+        cocktailTypes:  order.cocktailTypes||[],
+        bags:           rawBags.map(b=>({bagNum:b.bagNum,phraseA:b.phraseA,imageNumA:b.imageNumA,namesB:b.namesB,cocktailB:b.cocktailB,quantity:b.quantity,needsDate:b.needsDate})),
+        notes:          order.notes||'',
+        closedBy:       order.closedBy||'',
+      };
+
+      // 2. Hash
+      const hash = await hashObj(snapshot);
+
+      // 3. Fetch active legal text IDs
+      let legalTextId = null, privacyTextId = null;
+      const ltSnap = await db.ref('approvals/legalTexts').orderByChild('isActive').equalTo(true).once('value');
+      ltSnap.forEach(s=>{ const d=s.val(); if(d.type==='orderTerms'&&!legalTextId)legalTextId=s.key; if(d.type==='privacy'&&!privacyTextId)privacyTextId=s.key; });
+
+      // 4. Write package (immutable snapshot)
+      const pkgRef = db.ref('approvals/packages').push();
+      await pkgRef.set({v:1, orderId:order.id, createdAt:new Date().toISOString(), hash, snapshot, legalTextId, privacyTextId});
+
+      // 5. Supersede existing pending requests
+      const batch = {};
+      requests.filter(r=>['pending','viewed','verified'].includes(r.status)).forEach(r=>{
+        batch[`approvals/requests/${r.id}/status`]      = 'superseded';
+        batch[`approvals/requests/${r.id}/supersededAt`]= new Date().toISOString();
+      });
+      if(Object.keys(batch).length) await db.ref().update(batch);
+
+      // 6. Generate token + OTP
+      const token  = genToken();
+      const otp    = genOTP();
+      const expiry = new Date(Date.now()+72*3600*1000).toISOString();
+
+      // 7. Write request
+      const reqRef = db.ref('approvals/requests').push();
+      await reqRef.set({
+        packageId:pkgRef.key, orderId:order.id, token,
+        verifyCode:otp, verifyCodeExpiry:expiry,
+        verifyAttempts:0, status:'pending',
+        expiresAt:expiry, createdAt:new Date().toISOString(),
+      });
+
+      // 8. Token index (O(1) lookup from approval.html)
+      await db.ref(`approvalsByToken/${token}`).set(reqRef.key);
+
+      // 9. Log event
+      await db.ref(`approvals/events/${order.id}/${Date.now()}`).set({
+        type:'created', ts:new Date().toISOString(),
+        note:`בקשת אישור v${requests.length+1} נוצרה`,
+      });
+
+      setFresh({token, otp, hash:hash.slice(0,12)+'...', expiry, requestId:reqRef.key});
+    } catch(e) {
+      alert('שגיאה: '+e.message); console.error(e);
+    }
+    setGen(false);
+  };
+
+  const activeToken  = fresh?.token || active?.token || '';
+  const approvalUrl  = activeToken ? `${APPROVAL_BASE_URL}?t=${activeToken}` : '';
+  const waMsg = fresh ? `שלום ${order.customerName} 👋\n\nמצורפת בקשת האישור לשקיות הקוקטייל לאירוע ${order.eventType||''} בתאריך ${fmtDate(order.eventDate)}.\n\n🔗 לאישור ההזמנה:\n${APPROVAL_BASE_URL}?t=${fresh.token}\n\n🔑 קוד האימות שלך: *${fresh.otp}*\n\nהקישור תקף ל-72 שעות.\nלשאלות — ישירות בוואטסאפ 🍹` : '';
+
+  const downloadEvidence = (req) => {
+    db.ref(`approvals/packages/${req.packageId}`).once('value').then(s=>{
+      const p = s.val(); if(!p) return;
+      const sn = p.snapshot||{}, au = req.auditTrail||{};
+      const total=(Number(sn.packagePrice)||0)+(Number(sn.extras)||0);
+      const w = window.open('','_blank');
+      /* LEGAL REVIEW NOTE: This evidence bundle HTML template must be reviewed by an Israeli lawyer */
+      w.document.write(`<!DOCTYPE html><html lang="he" dir="rtl"><head><meta charset="UTF-8"/><title>ראיות אישור — ${sn.customerName}</title>
+<style>body{font-family:Arial,sans-serif;direction:rtl;max-width:820px;margin:40px auto;padding:20px;color:#333;font-size:14px;}
+h1{color:#7c3aed;border-bottom:3px solid #7c3aed;padding-bottom:8px;}h2{color:#4338ca;border-bottom:1px solid #e2e8f0;padding-bottom:6px;margin-top:28px;}
+table{width:100%;border-collapse:collapse;margin:12px 0;}td,th{border:1px solid #e2e8f0;padding:8px 12px;text-align:right;}th{background:#f8fafc;font-weight:600;}
+.stamp{background:#d1fae5;border:2px solid #6ee7b7;border-radius:8px;padding:16px;margin:16px 0;font-size:15px;}
+.hash{font-family:monospace;font-size:11px;word-break:break-all;background:#f1f5f9;padding:8px;border-radius:4px;margin:6px 0;}
+.legal{font-size:12px;line-height:1.75;white-space:pre-wrap;background:#f8fafc;padding:12px;border-radius:6px;border:1px solid #e2e8f0;}
+.footer{margin-top:40px;font-size:11px;color:#94a3b8;border-top:1px solid #e2e8f0;padding-top:12px;}
+@media print{.noprint{display:none}}</style></head><body>
+<h1>🍹 Booze Bags — חבילת ראיות אישור הזמנה</h1>
+<div class="stamp">✅ ההזמנה אושרה | תאריך: ${fmtDateTime(au.approvedAt)} | מזהה בקשה: ${req.id}</div>
+<button class="noprint" onclick="window.print()" style="padding:10px 20px;background:#7c3aed;color:#fff;border:none;border-radius:8px;cursor:pointer;font-size:14px;margin-bottom:20px;">🖨️ הדפס / שמור כ-PDF</button>
+<h2>פרטי ההזמנה המאושרת</h2>
+<table><tr><th>שם לקוח</th><td>${sn.customerName||'—'}</td></tr><tr><th>טלפון</th><td>${sn.phone||'—'}</td></tr>
+<tr><th>סוג אירוע</th><td>${sn.eventType||'—'}</td></tr><tr><th>תאריך אירוע</th><td>${fmtDate(sn.eventDate)}</td></tr>
+<tr><th>מיקום</th><td>${sn.eventLocation||'—'}</td></tr><tr><th>אספקה</th><td>${sn.deliveryType||'—'}</td></tr>
+<tr><th>כמות שקיות</th><td>${sn.bagCount}</td></tr><tr><th>קוקטיילים</th><td>${(sn.cocktailTypes||[]).join(', ')||'—'}</td></tr>
+<tr><th>מחיר כולל</th><td>₪${Number(total).toLocaleString()}</td></tr><tr><th>מקדמה</th><td>₪${Number(sn.advanceAmount||0).toLocaleString()}</td></tr>
+<tr><th>הערות</th><td>${sn.notes||'—'}</td></tr></table>
+<h2>מסלול ביקורת (Audit Trail)</h2>
+<table><tr><th>מזהה בקשה</th><td class="hash">${req.id}</td></tr><tr><th>מזהה חבילה</th><td class="hash">${req.packageId}</td></tr>
+<tr><th>Hash תוכן</th><td class="hash">${p.hash}</td></tr>
+<tr><th>נוצר</th><td>${fmtDateTime(req.createdAt)}</td></tr><tr><th>נצפה</th><td>${fmtDateTime(req.viewedAt)}</td></tr>
+<tr><th>אומת</th><td>${fmtDateTime(req.verifiedAt)}</td></tr><tr><th>אושר</th><td>${fmtDateTime(au.approvedAt)}</td></tr>
+<tr><th>כתובת IP</th><td>${au.ip||'—'}</td></tr><tr><th>User Agent</th><td style="font-size:11px">${au.ua||'—'}</td></tr>
+<tr><th>סוג מכשיר</th><td>${au.deviceType||'—'}</td></tr><tr><th>משך גלישה</th><td>${au.sessionDurationSec||0} שניות</td></tr>
+<tr><th>טלפון (מוסתר)</th><td>${au.phone4Masked||'—'}</td></tr><tr><th>אימות OTP</th><td>ניסיון ${au.otpAttempts||1}</td></tr>
+<tr><th>Checkboxes</th><td>${JSON.stringify(au.checkboxStates||{})}</td></tr>
+<tr><th>כפתור לחוץ</th><td>${au.buttonLabel||'—'}</td></tr>
+<tr><th>גרסת תנאים</th><td>${au.legalTextId||'ברירת מחדל'}</td></tr></table>
+<h2>JSON ראיות (לשימוש פנימי)</h2>
+<div class="hash">${JSON.stringify({requestId:req.id,packageId:req.packageId,orderId:req.orderId,packageHash:p.hash,approvedAt:au.approvedAt,ip:au.ip,phone4Masked:au.phone4Masked,checkboxStates:au.checkboxStates,deviceType:au.deviceType},null,2)}</div>
+<div class="footer">מסמך זה נוצר אוטומטית. <!-- LEGAL REVIEW NOTE: consult licensed Israeli counsel before relying on this document in legal proceedings --></div>
+</body></html>`);
+      w.document.close();
+    });
+  };
+
+  const StatusBadge = ({status}) => (
+    <span style={{background:(APPROVAL_STATUS_COLORS[status]||'#94a3b8')+'22',color:APPROVAL_STATUS_COLORS[status]||'#94a3b8',border:`1px solid ${(APPROVAL_STATUS_COLORS[status]||'#94a3b8')}55`,borderRadius:20,padding:'3px 12px',fontSize:12,fontWeight:700,display:'inline-block'}}>
+      {APPROVAL_STATUS_LABELS[status]||status}
+    </span>
+  );
+
+  return (
+    <div className="overlay" onClick={e=>{if(e.target===e.currentTarget)onClose();}}>
+      <div className="modal" style={{maxWidth:660}}>
+        <div className="modal-hdr">
+          <h2 className="modal-title">📋 אישור הזמנה — {order.customerName}</h2>
+          <button className="modal-x" onClick={onClose}>✕</button>
+        </div>
+
+        {/* Status bar */}
+        <div style={{padding:'10px 20px',background:'var(--gray-50)',borderBottom:'1px solid var(--gray-100)',display:'flex',alignItems:'center',gap:10,flexWrap:'wrap'}}>
+          <span style={{fontSize:13,color:'var(--gray-500)'}}>מצב:</span>
+          {active ? <StatusBadge status={active.status}/> : <span style={{fontSize:13,color:'var(--gray-400)'}}>טרם נשלחה בקשה</span>}
+          {active?.viewedAt && <span style={{fontSize:11,color:'var(--gray-400)'}}>נצפה {fmtDateTime(active.viewedAt)}</span>}
+          {active?.status==='approved' && <button className="btn btn-sm" style={{background:'var(--green-light)',color:'var(--green)',border:'1px solid #6ee7b7',marginRight:'auto',fontSize:12}} onClick={()=>downloadEvidence(active)}>📥 חבילת ראיות</button>}
+        </div>
+
+        {/* Tabs */}
+        <div style={{display:'flex',borderBottom:'1px solid var(--gray-200)',padding:'0 20px'}}>
+          {[['current','🔏 אישור'],['history','🕐 גרסאות'],['audit','📋 לוג']].map(([t,l])=>(
+            <button key={t} onClick={()=>setTab(t)} style={{padding:'10px 16px',fontSize:13,fontWeight:600,cursor:'pointer',background:'none',border:'none',fontFamily:'inherit',borderBottom:`2px solid ${tab===t?'var(--primary)':'transparent'}`,color:tab===t?'var(--primary)':'var(--gray-500)'}}>
+              {l}
+            </button>
+          ))}
+        </div>
+
+        <div className="modal-body" style={{padding:20,maxHeight:'65vh',overflowY:'auto'}}>
+
+          {/* ── Current ── */}
+          {tab==='current' && (<>
+            {/* Generate button */}
+            {(!active||['expired','rejected','superseded','blocked'].includes(active?.status))&&!fresh && (
+              <div style={{marginBottom:20}}>
+                <button className="btn btn-violet" onClick={handleGenerate} disabled={generating} style={{width:'100%',justifyContent:'center',padding:'12px'}}>
+                  {generating?'⏳ יוצר בקשת אישור...':'🔏 צור בקשת אישור חדשה'}
+                </button>
+                <div style={{fontSize:12,color:'var(--gray-400)',marginTop:6,textAlign:'center'}}>
+                  יצירת קישור מאובטח + קוד אימות + תמונת מצב מוקפאת של ההזמנה
+                </div>
+              </div>
+            )}
+
+            {/* Active request (no fresh data) */}
+            {active&&!fresh&&!['expired','rejected','superseded','blocked'].includes(active.status) && (
+              <div style={{background:'#f0fdf4',border:'1px solid #86efac',borderRadius:10,padding:14,marginBottom:14}}>
+                <div style={{fontWeight:700,color:'#166534',marginBottom:8,fontSize:13}}>קישור פעיל</div>
+                <div style={{display:'flex',gap:8,marginBottom:10}}>
+                  <input readOnly value={`${APPROVAL_BASE_URL}?t=${active.token}`} style={{flex:1,fontSize:11,padding:'6px 8px',borderRadius:6,border:'1px solid var(--gray-200)',fontFamily:'monospace'}}/>
+                  <button className="btn btn-sm btn-outline" onClick={()=>copy(`${APPROVAL_BASE_URL}?t=${active.token}`,'link')}>{copied==='link'?'✓':'העתק'}</button>
+                </div>
+                <button className="btn btn-outline btn-sm" onClick={handleGenerate} disabled={generating}>{generating?'...':'🔄 שלח גרסה חדשה (תחליף את הנוכחית)'}</button>
+              </div>
+            )}
+
+            {/* Fresh generated */}
+            {fresh && (
+              <div style={{display:'flex',flexDirection:'column',gap:12}}>
+                <div style={{background:'#f0fdf4',border:'1px solid #86efac',borderRadius:12,padding:16}}>
+                  <div style={{fontWeight:700,color:'#166534',marginBottom:14,fontSize:15}}>✅ בקשת אישור נוצרה!</div>
+
+                  <div style={{marginBottom:14}}>
+                    <div style={{fontSize:12,fontWeight:600,color:'var(--gray-600)',marginBottom:6}}>קוד אימות ללקוח:</div>
+                    <div style={{fontSize:36,fontWeight:800,letterSpacing:10,color:'var(--primary)',textAlign:'center',padding:'10px',background:'var(--primary-light)',borderRadius:10}}>{fresh.otp}</div>
+                  </div>
+
+                  <div style={{marginBottom:12}}>
+                    <div style={{fontSize:12,fontWeight:600,color:'var(--gray-600)',marginBottom:6}}>קישור לאישור:</div>
+                    <div style={{display:'flex',gap:8}}>
+                      <input readOnly value={`${APPROVAL_BASE_URL}?t=${fresh.token}`} style={{flex:1,fontSize:11,padding:'6px 8px',borderRadius:6,border:'1px solid var(--gray-200)',fontFamily:'monospace'}}/>
+                      <button className="btn btn-sm btn-outline" onClick={()=>copy(`${APPROVAL_BASE_URL}?t=${fresh.token}`,'link')}>{copied==='link'?'✓ הועתק':'העתק'}</button>
+                    </div>
+                  </div>
+
+                  <div>
+                    <div style={{fontSize:12,fontWeight:600,color:'var(--gray-600)',marginBottom:6}}>הודעת וואטסאפ מוכנה:</div>
+                    <div style={{background:'#dcfce7',borderRadius:8,padding:12,fontSize:13,lineHeight:1.75,whiteSpace:'pre-wrap',border:'1px solid #86efac',direction:'rtl'}}>{waMsg}</div>
+                    <button className="btn btn-violet" style={{width:'100%',marginTop:10,justifyContent:'center',padding:'10px'}} onClick={()=>copy(waMsg,'wa')}>
+                      {copied==='wa'?'✓ הועתק ללוח!':'📋 העתק הודעה לוואטסאפ'}
+                    </button>
+                  </div>
+
+                  <div style={{marginTop:10,fontSize:11,color:'var(--gray-400)'}}>
+                    Hash: <span style={{fontFamily:'monospace'}}>{fresh.hash}</span> · תוקף 72 שעות
+                  </div>
+                </div>
+              </div>
+            )}
+          </>)}
+
+          {/* ── History ── */}
+          {tab==='history' && (
+            requests.length===0
+              ? <div style={{textAlign:'center',color:'var(--gray-400)',padding:32}}>אין היסטוריה</div>
+              : <div style={{display:'flex',flexDirection:'column',gap:10}}>
+                  {requests.map((r,i)=>(
+                    <div key={r.id} style={{border:'1px solid var(--gray-200)',borderRadius:10,padding:14,background:r.status==='approved'?'#f0fdf4':'#fff'}}>
+                      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
+                        <span style={{fontWeight:700}}>גרסה {requests.length-i}</span>
+                        <StatusBadge status={r.status}/>
+                      </div>
+                      <div style={{fontSize:12,color:'var(--gray-500)'}}>נוצר: {fmtDateTime(r.createdAt)}</div>
+                      {r.viewedAt   && <div style={{fontSize:12,color:'#2563eb'}}>נצפה: {fmtDateTime(r.viewedAt)}</div>}
+                      {r.verifiedAt && <div style={{fontSize:12,color:'#7c3aed'}}>אומת: {fmtDateTime(r.verifiedAt)}</div>}
+                      {r.approvedAt && <div style={{fontSize:12,color:'var(--green)',fontWeight:600}}>✅ אושר: {fmtDateTime(r.approvedAt)}</div>}
+                      {r.status==='rejected' && <div style={{fontSize:12,color:'var(--red)'}}>❌ {r.rejectionCategory}{r.rejectionNotes?` — ${r.rejectionNotes}`:''}</div>}
+                      {r.status==='approved' && <button className="btn btn-sm" style={{marginTop:8,background:'var(--green-light)',color:'var(--green)',border:'1px solid #6ee7b7',fontSize:12}} onClick={()=>downloadEvidence(r)}>📥 הורד ראיות</button>}
+                    </div>
+                  ))}
+                </div>
+          )}
+
+          {/* ── Audit Log ── */}
+          {tab==='audit' && (
+            events.length===0
+              ? <div style={{textAlign:'center',color:'var(--gray-400)',padding:32}}>אין לוג</div>
+              : <div style={{display:'flex',flexDirection:'column',gap:8}}>
+                  {events.map((e,i)=>(
+                    <div key={i} style={{display:'flex',gap:12,alignItems:'flex-start',padding:'8px 0',borderBottom:'1px solid var(--gray-100)'}}>
+                      <div style={{width:8,height:8,borderRadius:'50%',background:e.type==='approved'?'var(--green)':e.type==='rejected'?'var(--red)':'var(--primary)',flexShrink:0,marginTop:5}}/>
+                      <div style={{flex:1}}>
+                        <div style={{fontSize:13,fontWeight:500}}>{e.note}</div>
+                        <div style={{fontSize:11,color:'var(--gray-400)',marginTop:2}}>{fmtDateTime(e.ts)}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -3151,6 +3474,10 @@ function App() {
   const [calendarEvents, setCalendarEvents] = useState([]);
   const [reminders, setReminders] = useState([]);
   const [productionQueue, setProductionQueue] = useState({});
+  const [approvalRequests, setApprovalRequests] = useState({});
+  const [approvalEvents,   setApprovalEvents]   = useState({});
+  const [showApproval,     setShowApproval]      = useState(false);
+  const [approvalOrder,    setApprovalOrder]     = useState(null);
   const [deliveries, setDeliveries] = useState([]);
   const [monthlyExpenses, setMonthlyExpenses] = useState({});
   const [monthlySettings, setMonthlySettings] = useState({});
@@ -3214,6 +3541,11 @@ function App() {
     const pqRef = db.ref('productionQueue');
     pqRef.on('value', snap => setProductionQueue(snap.val() || {}));
 
+    const arRef = db.ref('approvals/requests');
+    arRef.on('value', snap => setApprovalRequests(snap.val() || {}));
+    const aeRef = db.ref('approvals/events');
+    aeRef.on('value', snap => setApprovalEvents(snap.val() || {}));
+
     const delRef = db.ref('deliveries');
     delRef.on('value', snap => {
       const data = snap.val() || {};
@@ -3232,7 +3564,7 @@ function App() {
       setFixedExpenses(Object.entries(data).map(([id, e]) => ({...e, id})));
     });
 
-    return () => { connRef.off(); ordersRef.off(); settingsRef.off(); txRef.off(); calRef.off(); remRef.off(); pqRef.off(); delRef.off(); meRef.off(); msRef.off(); feRef.off(); };
+    return () => { connRef.off(); ordersRef.off(); settingsRef.off(); txRef.off(); calRef.off(); remRef.off(); pqRef.off(); arRef.off(); aeRef.off(); delRef.off(); meRef.off(); msRef.off(); feRef.off(); };
   }, [db]);
 
   const handleUpdateSettings = (newSettings) => {
@@ -3366,6 +3698,7 @@ function App() {
   const handleEdit = (o) => { setEditing(o); setShowForm(true); };
   const handleAdd = () => { setEditing(null); setShowForm(true); };
   const handleClose = () => { setShowForm(false); setEditing(null); };
+  const handleOpenApproval = (o) => { setApprovalOrder(o); setShowApproval(true); };
 
   // ── Reminders / EmailJS ──
   const handleAddReminder = (data) => { if (!db) return; db.ref('reminders').push(data); };
@@ -3520,7 +3853,7 @@ function App() {
 
       <main className="main">
         {tab==='dashboard' && <Dashboard orders={orders} settings={settings} onUpdateSettings={handleUpdateSettings} onAdd={handleAdd} onEdit={handleEdit}/>}
-        {tab==='orders'    && <OrdersTable orders={filtered} allOrders={orders} filters={filters} onFilter={setFilters} onEdit={handleEdit} onDelete={handleDelete} onAdd={handleAdd} onQuickUpdate={handleQuickUpdate}/>}
+        {tab==='orders'    && <OrdersTable orders={filtered} allOrders={orders} filters={filters} onFilter={setFilters} onEdit={handleEdit} onDelete={handleDelete} onAdd={handleAdd} onQuickUpdate={handleQuickUpdate} onOpenApproval={handleOpenApproval} approvalRequests={approvalRequests}/>}
         {tab==='monthly'   && <MonthlyStats orders={orders} transactions={transactions} settings={settings} onUpdateSettings={handleUpdateSettings} monthlyExpenses={monthlyExpenses} onAddMonthlyExpense={handleAddMonthlyExpense} onDeleteMonthlyExpense={handleDeleteMonthlyExpense} monthlySettings={monthlySettings} onUpdateMonthlySetting={handleUpdateMonthlySetting} onAddCostItem={handleAddMonthlyCostItem} onDeleteCostItem={handleDeleteMonthlyCostItem} fixedExpenses={fixedExpenses}/>}
         {tab==='calendar'  && <CalendarView orders={orders} calendarEvents={calendarEvents} reminders={reminders} emailjsSettings={settings.emailjs} onEdit={handleEdit} onAddCalEvent={handleAddCalEvent} onEditCalEvent={handleEditCalEvent} onDeleteCalEvent={handleDeleteCalEvent} onAddReminder={handleAddReminder} onDeleteReminder={handleDeleteReminder} onUpdateEmailjsSettings={handleUpdateEmailjsSettings}/>}
         {tab==='bags'      && <BagsView orders={orders} onUpdateBag={handleUpdateBag} onAddBag={handleAddBag}/>}
@@ -3531,6 +3864,10 @@ function App() {
       </main>
 
       {showForm && <OrderForm order={editing} onSave={handleSave} onClose={handleClose}/>}
+      {showApproval && approvalOrder && (
+        <ApprovalModal order={approvalOrder} db={db} approvalRequests={approvalRequests} approvalEvents={approvalEvents}
+          onClose={()=>{setShowApproval(false);setApprovalOrder(null);}}/>
+      )}
     </div>
   );
 }

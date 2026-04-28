@@ -1,0 +1,657 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
+  <title>אישור הזמנה | Booze Bags</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --primary:#7c3aed; --primary-dark:#6d28d9; --primary-light:#ede9fe;
+      --green:#059669; --green-light:#d1fae5;
+      --red:#dc2626; --red-light:#fee2e2;
+      --amber:#d97706; --amber-light:#fef3c7;
+      --blue:#2563eb; --blue-light:#dbeafe;
+      --gray-50:#f8fafc; --gray-100:#f1f5f9; --gray-200:#e2e8f0;
+      --gray-400:#94a3b8; --gray-500:#64748b; --gray-600:#475569;
+      --gray-700:#334155; --gray-800:#1e293b;
+    }
+    html, body {
+      font-family:'Heebo',sans-serif; direction:rtl; background:#f4f4fb;
+      color:var(--gray-800); min-height:100vh; -webkit-font-smoothing:antialiased;
+    }
+    .page { max-width:520px; margin:0 auto; padding:0 0 130px; }
+
+    /* Header */
+    .top-bar { background:linear-gradient(135deg,#7c3aed,#4338ca); color:#fff; padding:22px 20px 26px; text-align:center; }
+    .top-bar-logo { font-size:30px; margin-bottom:4px; }
+    .top-bar-title { font-size:22px; font-weight:800; }
+    .top-bar-sub { font-size:13px; opacity:.8; margin-top:3px; }
+
+    /* Cards */
+    .card { background:#fff; border-radius:14px; box-shadow:0 2px 12px rgba(0,0,0,.07); margin:14px 16px; overflow:hidden; }
+    .card-hdr { padding:14px 18px 10px; border-bottom:1px solid var(--gray-100); display:flex; align-items:center; gap:10px; }
+    .card-hdr-icon { font-size:20px; }
+    .card-hdr-title { font-size:15px; font-weight:700; color:var(--gray-800); }
+    .card-body { padding:14px 18px; }
+    .detail-row { display:flex; justify-content:space-between; align-items:flex-start; padding:9px 0; border-bottom:1px solid var(--gray-100); gap:12px; }
+    .detail-row:last-child { border-bottom:none; }
+    .detail-lbl { font-size:13px; color:var(--gray-500); flex-shrink:0; }
+    .detail-val { font-size:14px; font-weight:600; color:var(--gray-800); text-align:left; }
+
+    /* Collapsible */
+    .coll-hdr { padding:15px 18px; display:flex; align-items:center; justify-content:space-between; cursor:pointer; user-select:none; transition:background .15s; }
+    .coll-hdr:hover { background:var(--gray-50); }
+    .coll-title { font-size:14px; font-weight:700; color:var(--gray-700); display:flex; align-items:center; gap:8px; }
+    .coll-body { padding:0 18px 16px; }
+    .legal-text { font-size:13px; line-height:1.75; color:var(--gray-600); white-space:pre-wrap; }
+
+    /* Chips */
+    .chip { display:inline-block; padding:3px 11px; border-radius:20px; font-size:12px; font-weight:600; background:var(--primary-light); color:var(--primary); margin:3px 2px; }
+
+    /* Inputs */
+    .inp { width:100%; padding:14px 16px; border:2px solid var(--gray-200); border-radius:10px; font-size:20px; font-family:inherit; text-align:center; letter-spacing:6px; outline:none; transition:border-color .2s; }
+    .inp:focus { border-color:var(--primary); }
+    .inp.err { border-color:var(--red); }
+    .sel { width:100%; padding:12px 14px; border:2px solid var(--gray-200); border-radius:10px; font-size:15px; font-family:inherit; color:var(--gray-800); background:#fff; outline:none; }
+    .sel:focus { border-color:var(--primary); }
+    .ta { width:100%; padding:12px 14px; border:2px solid var(--gray-200); border-radius:10px; font-size:14px; font-family:inherit; color:var(--gray-800); resize:vertical; min-height:90px; outline:none; }
+    .ta:focus { border-color:var(--primary); }
+
+    /* Buttons */
+    .btn-p { width:100%; padding:16px; background:linear-gradient(135deg,#7c3aed,#4338ca); color:#fff; border:none; border-radius:12px; font-size:17px; font-weight:700; font-family:inherit; cursor:pointer; transition:opacity .2s,transform .1s; }
+    .btn-p:active { transform:scale(.98); }
+    .btn-p:disabled { opacity:.45; cursor:not-allowed; }
+    .btn-s { width:100%; padding:14px; background:#fff; color:var(--primary); border:2px solid var(--primary); border-radius:12px; font-size:15px; font-weight:600; font-family:inherit; cursor:pointer; }
+    .btn-d { width:100%; padding:12px; background:#fff; color:var(--red); border:2px solid #fca5a5; border-radius:10px; font-size:14px; font-weight:600; font-family:inherit; cursor:pointer; }
+    .btn-sm { padding:7px 14px; border-radius:8px; font-size:13px; font-weight:600; cursor:pointer; border:none; font-family:inherit; }
+
+    /* Checkboxes */
+    .chk-row { display:flex; align-items:flex-start; gap:12px; padding:13px 0; border-bottom:1px solid var(--gray-100); cursor:pointer; }
+    .chk-row:last-child { border-bottom:none; }
+    .chk-box { width:23px; height:23px; border:2px solid var(--gray-300); border-radius:6px; flex-shrink:0; display:flex; align-items:center; justify-content:center; transition:all .15s; margin-top:1px; }
+    .chk-box.on { background:var(--primary); border-color:var(--primary); }
+    .chk-box.flash { border-color:var(--red); animation:blink .4s 3; }
+    @keyframes blink { 0%,100%{border-color:var(--red)} 50%{border-color:transparent} }
+    .chk-lbl { font-size:14px; line-height:1.55; color:var(--gray-700); }
+
+    /* Sticky footer */
+    .sticky { position:fixed; bottom:0; left:0; right:0; background:#fff; border-top:1px solid var(--gray-200); padding:13px 18px 18px; box-shadow:0 -4px 20px rgba(0,0,0,.09); z-index:100; }
+    @media(min-width:520px){ .sticky{left:50%;right:auto;transform:translateX(-50%);width:520px;} }
+
+    /* Modal overlay */
+    .ov { position:fixed; inset:0; background:rgba(0,0,0,.55); display:flex; align-items:flex-end; z-index:200; }
+    .sheet { background:#fff; border-radius:20px 20px 0 0; padding:24px 20px 44px; width:100%; max-width:520px; margin:0 auto; }
+    .sh-title { font-size:18px; font-weight:800; color:var(--gray-800); margin-bottom:8px; }
+    .sh-body { font-size:14px; color:var(--gray-600); line-height:1.65; margin-bottom:20px; }
+
+    /* Alerts */
+    .alert { padding:14px 16px; border-radius:10px; font-size:14px; margin:12px 16px; line-height:1.6; }
+    .al-r { background:var(--red-light); color:#991b1b; border:1px solid #fca5a5; }
+    .al-g { background:var(--green-light); color:#065f46; border:1px solid #6ee7b7; }
+    .al-a { background:var(--amber-light); color:#92400e; border:1px solid #fcd34d; }
+
+    /* Spinner */
+    .spin { width:36px; height:36px; border:3px solid var(--gray-200); border-top-color:var(--primary); border-radius:50%; animation:rot .7s linear infinite; margin:0 auto; }
+    @keyframes rot { to{transform:rotate(360deg)} }
+
+    /* Price */
+    .price-big { font-size:26px; font-weight:800; color:var(--primary); }
+    .divider { height:1px; background:var(--gray-100); margin:0 16px; }
+  </style>
+</head>
+<body>
+<div id="root"></div>
+<script>
+window.FIREBASE_CONFIG = {
+  apiKey:"AIzaSyDHtvTOOSHk_ShqZjyYdTJ2GFex3zcAfLo",
+  authDomain:"booze-bags-new.firebaseapp.com",
+  databaseURL:"https://booze-bags-new-default-rtdb.firebaseio.com",
+  projectId:"booze-bags-new",
+  storageBucket:"booze-bags-new.firebasestorage.app",
+  messagingSenderId:"686250608499",
+  appId:"1:686250608499:web:74a226111873f0e39de706"
+};
+</script>
+<script type="text/babel">
+const {useState, useEffect, useRef} = React;
+
+/* ── Helpers ── */
+const fmtDate = s => s ? new Date(s+'T12:00:00').toLocaleDateString('he-IL',{day:'2-digit',month:'2-digit',year:'numeric'}) : '—';
+const fmt = n => n ? '₪'+Number(n).toLocaleString() : '—';
+
+/* ── Legal text fallbacks (must be replaced via CRM with lawyer-reviewed text) ── */
+/* LEGAL REVIEW REQUIRED: All text in DEFAULT_TERMS and DEFAULT_PRIVACY must be reviewed
+   and approved by a licensed Israeli lawyer before use in binding agreements. */
+const DEFAULT_TERMS = `תנאי ההזמנה ומדיניות
+⚠️ טיוטה בלבד — טרם נבדקה על ידי עורך דין. אין להשתמש בנוסח זה בפועל.
+
+1. אישור ההזמנה
+בלחיצה על כפתור האישור, הלקוח מאשר כי קרא את כל פרטי ההזמנה המפורטים ומסכים לתנאים אלו.
+
+2. תאריך האירוע
+המוצרים יסופקו בהתאם לתאריך האירוע המצוין. שינוי תאריך טעון הודעה בכתב לפחות 14 יום מראש.
+
+3. מדיניות ביטולים
+• ביטול מעל 30 יום לפני האירוע — החזר מלא בניכוי המקדמה
+• ביטול 14–30 יום לפני האירוע — החזר 50% ממחיר ההזמנה
+• ביטול פחות מ-14 יום לפני האירוע — אין החזר
+
+4. שינויים בהזמנה
+ניתן לבצע שינויים בהזמנה עד 21 יום לפני תאריך האירוע בלבד.
+לאחר מועד זה ההזמנה נשלחת לייצור ולא ניתן לשנותה.
+
+5. תשלומים
+המקדמה אינה ניתנת להחזר. יתרת התשלום תשולם לא יאוחר מ-7 ימים לפני האירוע.
+
+[יש להוסיף כאן סעיפים נוספים בהתאם לייעוץ משפטי]`;
+
+const DEFAULT_PRIVACY = `הצהרת פרטיות ושימוש במידע
+⚠️ טיוטה בלבד — יש לבחון עם יועץ משפטי בטרם שימוש.
+
+המידע האישי שנמסר (שם מלא, מספר טלפון, פרטי האירוע) ישמש אך ורק לצורך ביצוע ההזמנה ולתיעוד האישור.
+המידע לא יועבר לצדדים שלישיים ללא הסכמה מפורשת, למעט לצורך ביצוע השירות עצמו.
+תיעוד האישור (כולל כתובת IP, מזהה מכשיר ופרטי אימות) נשמר לצרכי הוכחה בלבד.
+ניתן לפנות אלינו בכל עת לצורך עיון, תיקון או מחיקת הנתונים.`;
+
+/* ── Components ── */
+function Collapsible({title, icon, children, initOpen=false, badge}) {
+  const [open, setOpen] = useState(initOpen);
+  return (
+    <div style={{borderBottom:'1px solid var(--gray-100)'}}>
+      <div className="coll-hdr" onClick={()=>setOpen(v=>!v)}>
+        <span className="coll-title">
+          {icon && <span>{icon}</span>}
+          {title}
+          {badge && <span style={{fontSize:11,background:'var(--red)',color:'#fff',borderRadius:10,padding:'1px 7px',marginRight:4}}>{badge}</span>}
+        </span>
+        <span style={{color:'var(--gray-400)',fontSize:20,transition:'transform .2s',display:'inline-block',transform:open?'rotate(180deg)':'rotate(0)'}}>▾</span>
+      </div>
+      {open && <div className="coll-body">{children}</div>}
+    </div>
+  );
+}
+
+function CheckRow({checked, onChange, flash, children, optional}) {
+  return (
+    <div className="chk-row" onClick={onChange}>
+      <div className={`chk-box${checked?' on':''}${flash?' flash':''}`}>
+        {checked && <svg width="14" height="11" viewBox="0 0 14 11" fill="none">
+          <path d="M1 5.5L5 9.5L13 1.5" stroke="#fff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"/>
+        </svg>}
+      </div>
+      <span className="chk-lbl" style={optional?{color:'var(--gray-500)'}:{}}>{children}</span>
+    </div>
+  );
+}
+
+/* ── Main App ── */
+function ApprovalApp() {
+  const [phase, setPhase]   = useState('loading');
+  const [request, setReq]   = useState(null);
+  const [pkg, setPkg]       = useState(null);
+  const [legalText, setLT]  = useState(DEFAULT_TERMS);
+  const [privText, setPT]   = useState(DEFAULT_PRIVACY);
+  const [error, setError]   = useState('');
+  const [phone4, setP4]     = useState('');
+  const [p4Err, setP4Err]   = useState('');
+  const [otp, setOtp]       = useState('');
+  const [otpErr, setOtpErr] = useState('');
+  const [otpTries, setTries]= useState(0);
+  const [checks, setChecks] = useState({details:false,correct:false,terms:false,privacy:false,mkt:false});
+  const [flash, setFlash]   = useState({});
+  const [showConfirm, setSC] = useState(false);
+  const [showReject, setSR]  = useState(false);
+  const [rejCat, setRejCat] = useState('');
+  const [rejNote, setRejNote]= useState('');
+  const [busy, setBusy]     = useState(false);
+  const db   = useRef(null);
+  const reqId= useRef(null);
+  const t0   = useRef(Date.now());
+
+  useEffect(()=>{
+    try {
+      if (!firebase.apps.length) firebase.initializeApp(window.FIREBASE_CONFIG);
+      db.current = firebase.database();
+    } catch(e) { db.current = firebase.app().database(); }
+
+    const token = new URLSearchParams(window.location.search).get('t');
+    if (!token) { setError('קישור לא תקין — נא לפנות לצוות.'); setPhase('error'); return; }
+
+    const D = db.current;
+    D.ref(`approvalsByToken/${token}`).once('value').then(s=>{
+      const rid = s.val();
+      if (!rid) { setError('הקישור אינו תקין או פג תוקפו.'); setPhase('error'); return; }
+      reqId.current = rid;
+
+      return D.ref(`approvals/requests/${rid}`).once('value').then(rs=>{
+        const req = {...rs.val(), id:rid};
+        if (!req.orderId) { setError('בקשת האישור לא נמצאה.'); setPhase('error'); return; }
+
+        const now = new Date();
+        if (req.expiresAt && new Date(req.expiresAt) < now) {
+          D.ref(`approvals/requests/${rid}/status`).set('expired');
+          setError('הקישור פג תוקף. אנא פנה אלינו לקבלת קישור חדש.'); setPhase('error'); return;
+        }
+        if (req.status === 'superseded') { setError('גרסה זו אינה בתוקף — קיימת גרסה מעודכנת.'); setPhase('error'); return; }
+        if (req.status === 'blocked')    { setError('הקישור נחסם עקב ניסיונות אימות רבים. אנא פנה אלינו.'); setPhase('error'); return; }
+
+        setReq(req);
+
+        return D.ref(`approvals/packages/${req.packageId}`).once('value').then(ps=>{
+          const p = ps.val();
+          if (!p) { setError('פרטי ההזמנה לא נמצאו.'); setPhase('error'); return; }
+          setPkg(p);
+
+          // Load legal texts (fall back to defaults)
+          const loadTxt = (id, fallback) => id
+            ? D.ref(`approvals/legalTexts/${id}`).once('value').then(x=>x.val()?.content||fallback)
+            : Promise.resolve(fallback);
+
+          return Promise.all([loadTxt(p.legalTextId, DEFAULT_TERMS), loadTxt(p.privacyTextId, DEFAULT_PRIVACY)])
+            .then(([lt, pt])=>{ setLT(lt); setPT(pt); })
+            .then(()=>{
+              // Log page view
+              const ts = new Date().toISOString();
+              const upd = {};
+              if (!req.viewedAt) upd[`approvals/requests/${rid}/viewedAt`] = ts;
+              if (req.status === 'pending') upd[`approvals/requests/${rid}/status`] = 'viewed';
+              upd[`approvals/events/${req.orderId}/${Date.now()}`] = {type:'viewed',ts,note:'לקוח פתח את דף האישור'};
+              D.ref().update(upd);
+
+              if (req.status === 'approved') setPhase('already_approved');
+              else setPhase('verify_phone');
+            });
+        });
+      });
+    }).catch(e=>{ console.error(e); setError('שגיאה בטעינת הנתונים. אנא נסה שוב.'); setPhase('error'); });
+  }, []);
+
+  /* ── Verification ── */
+  const doPhoneVerify = () => {
+    if (!/^\d{4}$/.test(phone4)) { setP4Err('נא להזין 4 ספרות בלבד'); return; }
+    const stored = (request?.snapshot?.phone||'').replace(/\D/g,'').slice(-4);
+    if (phone4 !== stored) { setP4Err('הספרות אינן תואמות את מספר הטלפון הרשום.'); return; }
+    setP4Err('');
+    setPhase('verify_otp');
+  };
+
+  const doOtpVerify = () => {
+    if (otp.length !== 6) { setOtpErr('קוד האימות הוא בן 6 ספרות'); return; }
+    if (request.verifyCodeExpiry && new Date(request.verifyCodeExpiry) < new Date()) {
+      setOtpErr('קוד האימות פג תוקף. אנא בקש קוד חדש מהצוות.'); return;
+    }
+    if (otp !== request.verifyCode) {
+      const n = otpTries + 1; setTries(n);
+      if (n >= 5) {
+        db.current.ref(`approvals/requests/${reqId.current}`).update({status:'blocked',blockedAt:new Date().toISOString()});
+        setError('יותר מדי ניסיונות כושלים. הקישור חסום. אנא פנה אלינו.'); setPhase('error'); return;
+      }
+      setOtpErr(`קוד שגוי. ניסיון ${n} מתוך 5.`); return;
+    }
+    const ts = new Date().toISOString();
+    db.current.ref().update({
+      [`approvals/requests/${reqId.current}/verifiedAt`]: ts,
+      [`approvals/requests/${reqId.current}/status`]: 'verified',
+      [`approvals/events/${request.orderId}/${Date.now()}`]: {type:'otp_verified',ts,note:'לקוח אימת זהות בהצלחה'},
+    });
+    setOtpErr(''); setPhase('summary');
+  };
+
+  /* ── Approve ── */
+  const handleApprove = () => {
+    const missing = ['details','correct','terms','privacy'].filter(k=>!checks[k]);
+    if (missing.length) {
+      const f={}; missing.forEach(k=>f[k]=true); setFlash(f);
+      setTimeout(()=>setFlash({}), 1600); return;
+    }
+    setSC(true);
+  };
+
+  const finalApprove = async () => {
+    setBusy(true); setSC(false);
+    let ip = '';
+    try { const r = await fetch('https://api.ipify.org?format=json'); ip = (await r.json()).ip; } catch(e){}
+    const ts = new Date().toISOString();
+    const audit = {
+      approvedAt: ts, ip,
+      ua: navigator.userAgent,
+      deviceType: /Mobi|Android/i.test(navigator.userAgent)?'mobile':'desktop',
+      sessionDurationSec: Math.round((Date.now()-t0.current)/1000),
+      checkboxStates: checks,
+      buttonLabel: 'אני מאשר/ת את ההזמנה',
+      pageViewedAt: new Date(t0.current).toISOString(),
+      phone4Masked: `***-${phone4}`,
+      otpAttempts: otpTries+1,
+      packageHash: pkg?.hash||'',
+      legalTextId: pkg?.legalTextId||'default',
+      privacyTextId: pkg?.privacyTextId||'default',
+    };
+    try {
+      await db.current.ref().update({
+        [`approvals/requests/${reqId.current}/status`]: 'approved',
+        [`approvals/requests/${reqId.current}/approvedAt`]: ts,
+        [`approvals/requests/${reqId.current}/auditTrail`]: audit,
+        [`approvals/events/${request.orderId}/${Date.now()}`]: {
+          type:'approved', ts,
+          note:`✅ הזמנה אושרה — IP:${ip}, ${audit.deviceType}, ${audit.sessionDurationSec}s`,
+        },
+      });
+      setPhase('approved');
+    } catch(e) { alert('שגיאה בשמירת האישור. אנא נסה שוב.'); setBusy(false); }
+  };
+
+  /* ── Reject ── */
+  const finalReject = async () => {
+    if (!rejCat) return;
+    setBusy(true);
+    const ts = new Date().toISOString();
+    await db.current.ref().update({
+      [`approvals/requests/${reqId.current}/status`]: 'rejected',
+      [`approvals/requests/${reqId.current}/rejectedAt`]: ts,
+      [`approvals/requests/${reqId.current}/rejectionCategory`]: rejCat,
+      [`approvals/requests/${reqId.current}/rejectionNotes`]: rejNote,
+      [`approvals/events/${request.orderId}/${Date.now()}`]: {
+        type:'rejected', ts, note:`❌ לקוח ביקש שינויים: ${rejCat}${rejNote?` — ${rejNote}`:''}`,
+      },
+    });
+    setPhase('rejected');
+  };
+
+  /* ── Computed ── */
+  const snap  = pkg?.snapshot || {};
+  const total = (Number(snap.packagePrice)||0)+(Number(snap.extras)||0);
+  const adv   = Number(snap.advanceAmount)||0;
+  const bal   = Math.max(0, total-adv);
+
+  /* ══════════════════ SCREENS ══════════════════ */
+
+  if (phase==='loading') return (
+    <div style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',minHeight:'100vh',gap:16,padding:24}}>
+      <div className="spin"/><div style={{color:'var(--gray-500)',fontSize:14}}>טוען פרטי הזמנה...</div>
+    </div>
+  );
+
+  if (phase==='error') return (
+    <>
+      <div className="top-bar"><div className="top-bar-logo">🍹</div><div className="top-bar-title">Booze Bags</div></div>
+      <div className="page">
+        <div className="alert al-r" style={{marginTop:24}}><strong>לא ניתן לפתוח את ההזמנה</strong><br/>{error}</div>
+        <div style={{padding:'0 16px',color:'var(--gray-500)',fontSize:13,lineHeight:1.7}}>אם אתה/את חושב/ת שמדובר בשגיאה, אנא פנה אלינו ישירות בוואטסאפ.</div>
+      </div>
+    </>
+  );
+
+  if (phase==='already_approved') return (
+    <>
+      <div className="top-bar" style={{background:'linear-gradient(135deg,#059669,#047857)'}}><div className="top-bar-logo">✅</div><div className="top-bar-title">ההזמנה כבר אושרה</div></div>
+      <div className="page">
+        <div className="alert al-g" style={{marginTop:24}}><strong>האישור שלך נרשם בהצלחה ✅</strong><br/>אין צורך לאשר שוב.</div>
+        <div className="card"><div className="card-body">
+          <div className="detail-row"><span className="detail-lbl">שם</span><span className="detail-val">{snap.customerName}</span></div>
+          <div className="detail-row"><span className="detail-lbl">תאריך אירוע</span><span className="detail-val">{fmtDate(snap.eventDate)}</span></div>
+          <div className="detail-row"><span className="detail-lbl">כמות שקיות</span><span className="detail-val">{snap.bagCount}</span></div>
+        </div></div>
+      </div>
+    </>
+  );
+
+  if (phase==='verify_phone') return (
+    <>
+      <div className="top-bar"><div className="top-bar-logo">🍹</div><div className="top-bar-title">Booze Bags</div><div className="top-bar-sub">אישור הזמנה</div></div>
+      <div className="page">
+        <div className="card" style={{marginTop:24}}>
+          <div className="card-hdr"><span className="card-hdr-icon">🔒</span><span className="card-hdr-title">אימות זהות — שלב 1/2</span></div>
+          <div className="card-body">
+            <p style={{fontSize:14,color:'var(--gray-600)',marginBottom:20,lineHeight:1.65}}>
+              כדי לצפות בפרטי ההזמנה ולאשרה, הזן/י את <strong>4 הספרות האחרונות</strong> של מספר הטלפון הרשום בהזמנה.
+            </p>
+            <label style={{display:'block',fontSize:13,fontWeight:600,color:'var(--gray-600)',marginBottom:8}}>4 ספרות אחרונות של הטלפון</label>
+            <input className={`inp${p4Err?' err':''}`} type="tel" inputMode="numeric" maxLength={4} placeholder="1234"
+              value={phone4} onChange={e=>{setP4(e.target.value.replace(/\D/g,'').slice(0,4));setP4Err('');}}
+              onKeyDown={e=>e.key==='Enter'&&doPhoneVerify()} autoFocus style={{marginBottom:p4Err?8:16}}/>
+            {p4Err && <div style={{color:'var(--red)',fontSize:13,marginBottom:12}}>{p4Err}</div>}
+            <button className="btn-p" onClick={doPhoneVerify}>המשך ←</button>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+
+  if (phase==='verify_otp') return (
+    <>
+      <div className="top-bar"><div className="top-bar-logo">🍹</div><div className="top-bar-title">Booze Bags</div><div className="top-bar-sub">קוד אימות — שלב 2/2</div></div>
+      <div className="page">
+        <div className="card" style={{marginTop:24}}>
+          <div className="card-hdr"><span className="card-hdr-icon">📱</span><span className="card-hdr-title">קוד אימות</span></div>
+          <div className="card-body">
+            <p style={{fontSize:14,color:'var(--gray-600)',marginBottom:20,lineHeight:1.65}}>
+              הזן/י את קוד האימות בן <strong>6 הספרות</strong> שנשלח אליך בוואטסאפ.
+            </p>
+            <label style={{display:'block',fontSize:13,fontWeight:600,color:'var(--gray-600)',marginBottom:8}}>קוד אימות</label>
+            <input className={`inp${otpErr?' err':''}`} type="tel" inputMode="numeric" maxLength={6} placeholder="123456"
+              value={otp} onChange={e=>{setOtp(e.target.value.replace(/\D/g,'').slice(0,6));setOtpErr('');}}
+              onKeyDown={e=>e.key==='Enter'&&doOtpVerify()} autoFocus style={{marginBottom:otpErr?8:16}}/>
+            {otpErr && <div style={{color:'var(--red)',fontSize:13,marginBottom:12}}>{otpErr}</div>}
+            <button className="btn-p" onClick={doOtpVerify} disabled={otp.length!==6}>אמת קוד ✓</button>
+            <button style={{background:'none',border:'none',color:'var(--primary)',fontSize:13,cursor:'pointer',fontFamily:'inherit',width:'100%',marginTop:12,padding:8}} onClick={()=>setPhase('verify_phone')}>← חזור</button>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+
+  if (phase==='summary'||phase==='submitting') return (
+    <>
+      <div className="top-bar"><div className="top-bar-logo">🍹</div><div className="top-bar-title">Booze Bags</div><div className="top-bar-sub">פרטי ההזמנה לאישור</div></div>
+      <div className="page">
+
+        <div style={{padding:'14px 16px 0',fontSize:14,color:'var(--gray-600)',lineHeight:1.65}}>
+          שלום <strong>{snap.customerName}</strong> 👋<br/>
+          להלן פרטי הזמנת שקיות הקוקטייל שלכם. אנא עבור/י על הפרטים ואשר/י בתחתית הדף.
+        </div>
+
+        {/* Order Summary */}
+        <div className="card">
+          <div className="card-hdr"><span className="card-hdr-icon">📋</span><span className="card-hdr-title">פרטי ההזמנה</span></div>
+          <div className="card-body">
+            <div className="detail-row"><span className="detail-lbl">שם לקוח</span><span className="detail-val">{snap.customerName}</span></div>
+            <div className="detail-row"><span className="detail-lbl">סוג אירוע</span><span className="detail-val">{snap.eventType||'—'}</span></div>
+            <div className="detail-row"><span className="detail-lbl">תאריך האירוע</span><span className="detail-val" style={{color:'var(--primary)',fontWeight:800,fontSize:15}}>{fmtDate(snap.eventDate)}</span></div>
+            {snap.eventLocation && <div className="detail-row"><span className="detail-lbl">מיקום</span><span className="detail-val">{snap.eventLocation}</span></div>}
+            {snap.deliveryType  && <div className="detail-row"><span className="detail-lbl">אספקה</span><span className="detail-val">{snap.deliveryType}</span></div>}
+            <div className="detail-row"><span className="detail-lbl">כמות שקיות</span><span className="detail-val" style={{fontSize:20,fontWeight:800,color:'var(--primary)'}}>{snap.bagCount}</span></div>
+          </div>
+        </div>
+
+        {/* Cocktails */}
+        {snap.cocktailTypes?.length>0 && (
+          <div className="card">
+            <div className="card-hdr"><span className="card-hdr-icon">🍸</span><span className="card-hdr-title">קוקטיילים</span></div>
+            <div className="card-body"><div style={{display:'flex',flexWrap:'wrap',gap:6}}>{snap.cocktailTypes.map(c=><span key={c} className="chip">{c}</span>)}</div></div>
+          </div>
+        )}
+
+        {/* Bag designs */}
+        {snap.bags?.length>0 && (
+          <div className="card" style={{overflow:'hidden'}}>
+            <Collapsible title={`פירוט עיצובים (${snap.bags.length} סוגים)`} icon="🎨">
+              {snap.bags.map((b,i)=>(
+                <div key={i} style={{padding:'10px 0',borderBottom:'1px solid var(--gray-100)'}}>
+                  <div style={{fontWeight:700,fontSize:13,marginBottom:4}}>עיצוב {b.bagNum||i+1} — {b.quantity||0} שקיות</div>
+                  {b.phraseA  && <div style={{fontSize:12,color:'var(--gray-500)'}}>מלל: {b.phraseA}</div>}
+                  {b.namesB   && <div style={{fontSize:12,color:'var(--gray-500)'}}>שמות: {b.namesB}</div>}
+                  {b.cocktailB&& <div style={{fontSize:12,color:'var(--primary)',fontWeight:600}}>קוקטייל: {b.cocktailB}</div>}
+                </div>
+              ))}
+            </Collapsible>
+          </div>
+        )}
+
+        {/* Pricing */}
+        <div className="card">
+          <div className="card-hdr"><span className="card-hdr-icon">💰</span><span className="card-hdr-title">סיכום מחיר</span></div>
+          <div className="card-body">
+            <div className="detail-row"><span className="detail-lbl">מחיר חבילה</span><span className="detail-val">{fmt(snap.packagePrice)}</span></div>
+            {snap.extras>0 && <div className="detail-row"><span className="detail-lbl">תוספות</span><span className="detail-val">{fmt(snap.extras)}</span></div>}
+            <div className="detail-row"><span className="detail-lbl" style={{fontWeight:700}}>סה״כ לתשלום</span><span className="price-big">{fmt(total)}</span></div>
+            {adv>0 && <>
+              <div className="detail-row"><span className="detail-lbl">מקדמה ששולמה</span><span className="detail-val" style={{color:'var(--green)'}}>{fmt(adv)}</span></div>
+              <div className="detail-row"><span className="detail-lbl" style={{fontWeight:700}}>יתרה לתשלום</span><span className="detail-val" style={{fontSize:18,fontWeight:800,color:bal>0?'var(--red)':'var(--green)'}}>{fmt(bal)}</span></div>
+            </>}
+          </div>
+        </div>
+
+        {snap.notes && <div className="card"><div className="card-hdr"><span className="card-hdr-icon">📝</span><span className="card-hdr-title">הערות</span></div><div className="card-body" style={{fontSize:14,color:'var(--gray-600)',lineHeight:1.7}}>{snap.notes}</div></div>}
+
+        {/* Legal + Privacy — expandable, required */}
+        <div className="card" style={{overflow:'hidden'}}>
+          {/* LEGAL REVIEW NOTE: The collapsible sections below contain legal text that MUST be reviewed
+              and approved by a licensed Israeli lawyer before being used in binding customer agreements */}
+          <Collapsible title="תנאי ההזמנה והמדיניות" icon="📄" badge="חובה לקרוא">
+            <div className="legal-text">{legalText}</div>
+          </Collapsible>
+          <Collapsible title="הצהרת פרטיות" icon="🔐" badge="חובה לקרוא">
+            <div className="legal-text">{privText}</div>
+          </Collapsible>
+        </div>
+
+        {/* Consent checkboxes */}
+        <div className="card">
+          <div className="card-hdr"><span className="card-hdr-icon">✅</span><span className="card-hdr-title">אישורים נדרשים</span></div>
+          <div className="card-body" style={{paddingBottom:8}}>
+            <p style={{fontSize:12,color:'var(--gray-400)',marginBottom:12}}>יש לסמן את כל 4 התיבות לצורך האישור</p>
+            <CheckRow checked={checks.details} onChange={()=>setChecks(c=>({...c,details:!c.details}))} flash={flash.details}>
+              קראתי ועברתי על <strong>פרטי ההזמנה</strong> המוצגים לעיל
+            </CheckRow>
+            <CheckRow checked={checks.correct} onChange={()=>setChecks(c=>({...c,correct:!c.correct}))} flash={flash.correct}>
+              <strong>הפרטים, הכמויות, כיוון העיצוב ותאריך האירוע</strong> נכונים ומאושרים על ידי
+            </CheckRow>
+            <CheckRow checked={checks.terms} onChange={()=>setChecks(c=>({...c,terms:!c.terms}))} flash={flash.terms}>
+              קראתי ומסכים/ה ל<strong>תנאי ההזמנה, מדיניות הביטולים ומדיניות הייצור</strong>
+            </CheckRow>
+            <CheckRow checked={checks.privacy} onChange={()=>setChecks(c=>({...c,privacy:!c.privacy}))} flash={flash.privacy}>
+              קראתי ומסכים/ה ל<strong>הצהרת הפרטיות</strong> ולשימוש בפרטים לצורך ביצוע ההזמנה
+            </CheckRow>
+            <CheckRow checked={checks.mkt} onChange={()=>setChecks(c=>({...c,mkt:!c.mkt}))} optional>
+              מאשר/ת קבלת עדכונים ומבצעים מהצוות (אופציונלי)
+            </CheckRow>
+          </div>
+        </div>
+
+        <div style={{height:16}}/>
+      </div>
+
+      {/* Sticky CTA */}
+      <div className="sticky">
+        <button className="btn-p" onClick={handleApprove} disabled={busy} style={{marginBottom:9}}>
+          {busy?'שומר אישור...':'✅ אני מאשר/ת את ההזמנה'}
+        </button>
+        <button className="btn-d" onClick={()=>setSR(true)}>
+          צריך/ה לשנות משהו לפני האישור
+        </button>
+      </div>
+
+      {/* Confirmation modal */}
+      {showConfirm && (
+        <div className="ov" onClick={e=>{if(e.target===e.currentTarget)setSC(false);}}>
+          <div className="sheet">
+            <div className="sh-title">אישור הזמנה סופי 📋</div>
+            <div className="sh-body">
+              לחיצה על "מאשר/ת" מהווה <strong>אישור סופי ומחייב</strong> לכל פרטי ההזמנה ולתנאים המצורפים.<br/><br/>
+              לאחר האישור לא ניתן לבטל או לשנות ללא תיאום מראש עם הצוות.
+              {/* LEGAL REVIEW NOTE: confirm text above should be reviewed by counsel */}
+            </div>
+            <button className="btn-p" onClick={finalApprove} disabled={busy} style={{marginBottom:12}}>
+              ✅ מאשר/ת — אישור הזמנה מחייב
+            </button>
+            <button className="btn-s" onClick={()=>setSC(false)}>חזרה לעיון</button>
+          </div>
+        </div>
+      )}
+
+      {/* Rejection modal */}
+      {showReject && (
+        <div className="ov" onClick={e=>{if(e.target===e.currentTarget)setSR(false);}}>
+          <div className="sheet">
+            <div className="sh-title">מה צריך לשנות? 📝</div>
+            <div className="sh-body">ספר/י לנו מה לא מדויק — נחזור אליך בהקדם עם גרסה מעודכנת.</div>
+            <div style={{marginBottom:14}}>
+              <label style={{fontSize:13,fontWeight:600,color:'var(--gray-600)',display:'block',marginBottom:8}}>סיבת הבקשה לשינוי *</label>
+              <select className="sel" value={rejCat} onChange={e=>setRejCat(e.target.value)}>
+                <option value="">— בחר/י סיבה —</option>
+                <option value="event_details">פרטי האירוע שגויים</option>
+                <option value="quantity">כמות שגויה</option>
+                <option value="design">שינוי בעיצוב / קוקטיילים</option>
+                <option value="pricing">שאלה לגבי המחיר</option>
+                <option value="other">אחר</option>
+              </select>
+            </div>
+            <div style={{marginBottom:18}}>
+              <label style={{fontSize:13,fontWeight:600,color:'var(--gray-600)',display:'block',marginBottom:8}}>הסבר קצר (אופציונלי)</label>
+              <textarea className="ta" value={rejNote} onChange={e=>setRejNote(e.target.value)} placeholder="תאר/י מה לא מדויק..."/>
+            </div>
+            <button className="btn-p" onClick={finalReject} disabled={!rejCat||busy} style={{marginBottom:12}}>
+              שלח/י בקשת שינוי
+            </button>
+            <button className="btn-s" onClick={()=>setSR(false)}>ביטול — חזרה לעיון</button>
+          </div>
+        </div>
+      )}
+    </>
+  );
+
+  if (phase==='approved') return (
+    <>
+      <div className="top-bar" style={{background:'linear-gradient(135deg,#059669,#047857)'}}>
+        <div className="top-bar-logo">🎉</div>
+        <div className="top-bar-title">ההזמנה אושרה!</div>
+        <div className="top-bar-sub">תודה {snap.customerName} 🍹</div>
+      </div>
+      <div className="page">
+        <div className="alert al-g" style={{marginTop:24}}>
+          <strong style={{fontSize:16}}>✅ האישור נרשם בהצלחה</strong><br/>
+          האישור שלך לאירוע <strong>{snap.eventType}</strong> בתאריך <strong>{fmtDate(snap.eventDate)}</strong> התקבל.<br/>
+          {snap.bagCount} שקיות קוקטייל מחכות לכם! 🍹
+        </div>
+        <div className="card"><div className="card-body" style={{fontSize:14,color:'var(--gray-600)',lineHeight:1.8}}>
+          <strong>מה קורה עכשיו?</strong><br/>
+          • הצוות שלנו יתחיל לעבוד על ההזמנה<br/>
+          • ניצור קשר לגבי פרטי העיצוב הסופיים<br/>
+          • נדאג שהשקיות יגיעו לפני האירוע 🍹<br/><br/>
+          לשאלות ניתן לפנות ישירות בוואטסאפ.
+        </div></div>
+      </div>
+    </>
+  );
+
+  if (phase==='rejected') return (
+    <>
+      <div className="top-bar" style={{background:'linear-gradient(135deg,#d97706,#b45309)'}}>
+        <div className="top-bar-logo">📝</div>
+        <div className="top-bar-title">בקשת השינוי התקבלה</div>
+      </div>
+      <div className="page">
+        <div className="alert al-a" style={{marginTop:24}}>
+          <strong>📩 קיבלנו את הבקשה שלך</strong><br/>
+          נחזור אליך בהקדם עם הזמנה מעודכנת לאישור.<br/>
+          אין צורך לעשות כלום נוסף כרגע.
+        </div>
+      </div>
+    </>
+  );
+
+  return null;
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<ApprovalApp/>);
+</script>
+</body>
+</html>
