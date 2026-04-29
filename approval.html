@@ -127,39 +127,51 @@ const {useState, useEffect, useRef} = React;
 const fmtDate = s => s ? new Date(s+'T12:00:00').toLocaleDateString('he-IL',{day:'2-digit',month:'2-digit',year:'numeric'}) : '—';
 const fmt = n => n ? '₪'+Number(n).toLocaleString() : '—';
 
-/* ── Legal text fallbacks (must be replaced via CRM with lawyer-reviewed text) ── */
-/* LEGAL REVIEW REQUIRED: All text in DEFAULT_TERMS and DEFAULT_PRIVACY must be reviewed
-   and approved by a licensed Israeli lawyer before use in binding agreements. */
-const DEFAULT_TERMS = `תנאי ההזמנה ומדיניות
-⚠️ טיוטה בלבד — טרם נבדקה על ידי עורך דין. אין להשתמש בנוסח זה בפועל.
+/* ── Legal text — placeholders filled dynamically per order ── */
+const DEFAULT_TERMS = `טופס הזמנה ואישור תנאי התקשרות — BoozeBags
 
-1. אישור ההזמנה
-בלחיצה על כפתור האישור, הלקוח מאשר כי קרא את כל פרטי ההזמנה המפורטים ומסכים לתנאים אלו.
+1. פרטי המזמין והאירוע:
+שמות בני הזוג: {{COUPLE_NAMES}}
+תאריך האירוע: {{EVENT_DATE}}
 
-2. תאריך האירוע
-המוצרים יסופקו בהתאם לתאריך האירוע המצוין. שינוי תאריך טעון הודעה בכתב לפחות 14 יום מראש.
+2. פירוט ההזמנה:
+כמות שקיות צ'ייסר: {{BAG_COUNT}}
+סה"כ לתשלום: {{TOTAL_PRICE}}
 
-3. מדיניות ביטולים
-• ביטול מעל 30 יום לפני האירוע — החזר מלא בניכוי המקדמה
-• ביטול 14–30 יום לפני האירוע — החזר 50% ממחיר ההזמנה
-• ביטול פחות מ-14 יום לפני האירוע — אין החזר
+3. תנאי תשלום ומדיניות ביטולים:
+מקדמה: עם הזמנת העבודה ישולמו 750 ש"ח. המקדמה לא תוחזר במקרה של ביטול לאחר תחילת עבודת העיצוב.
+יתרת תשלום: יתרת התשלום תוסדר במועד אישור הסקיצה הגרפית הסופית. תשלום זה מהווה תנאי הכרחי למעבר ההזמנה לשלב הייצור והמילוי.
+ביטול לאחר אישור דפוס: מרגע אישור הסקיצה הסופית ושליחתה לייצור, לא ניתן לבטל את ההזמנה והמזמין יחויב במלוא סכום העסקה.
 
-4. שינויים בהזמנה
-ניתן לבצע שינויים בהזמנה עד 21 יום לפני תאריך האירוע בלבד.
-לאחר מועד זה ההזמנה נשלחת לייצור ולא ניתן לשנותה.
+4. דחייה או ביטול עקב "כוח עליון" (מלחמה, מגפה, אסון טבע):
+במידה והאירוע נדחה/בוטל טרם הדפסת השקיות: תינתן למזמין אפשרות לדחות את ההזמנה למועד חלופי (בטווח של 12 חודשים) או לקבל החזר של 50% מהסכום ששולם.
+במידה והאירוע נדחה/בוטל לאחר הדפסת השקיות: לא יינתן החזר כספי כלל. מאחר שהמוצר מיוצר בהתאמה אישית, לא ניתן לעשות בו שימוש חוזר.
+אחריות על תאריך: המזמין מאשר כי במידה ובחר להדפיס תאריך על השקית והאירוע נדחה, לא יינתן פיצוי או הדפסה חוזרת בגין תאריך שאינו רלוונטי עוד.
 
-5. תשלומים
-המקדמה אינה ניתנת להחזר. יתרת התשלום תשולם לא יאוחר מ-7 ימים לפני האירוע.
+5. הצהרת זכויות יוצרים:
+המזמין מצהיר כי כל חומר גרפי (תמונות, לוגו) שנמסר ל-BoozeBags הוא בבעלותו או ברשותו. המזמין פוטר את BoozeBags מכל אחריות בגין הפרת זכויות יוצרים של צד שלישי ומתחייב לשפות את BoozeBags בגין כל נזק או הוצאה משפטית שינבעו משימוש בחומרים אלו.
 
-[יש להוסיף כאן סעיפים נוספים בהתאם לייעוץ משפטי]`;
+6. אחריות ואישור סופי:
+אישור סופי: אישור הסקיצה הגרפית מהווה אישור סופי לייצור. לא תתאפשרנה טענות לגבי טעויות בגרפיקה או בטקסט לאחר האישור.
+חוק האלכוהול: המזמין מאשר כי ידוע לו שחל איסור מוחלט על אספקת אלכוהול לקטינים (מתחת לגיל 18). האחריות הבלעדית על חלוקת המוצר באירוע ומניעת גישה לקטינים חלה על המזמין בלבד.
+הגבלת אחריות: אחריות BoozeBags מוגבלת להחלפת המוצר או החזר כספי בגובה סכום העסקה בלבד.`;
 
-const DEFAULT_PRIVACY = `הצהרת פרטיות ושימוש במידע
-⚠️ טיוטה בלבד — יש לבחון עם יועץ משפטי בטרם שימוש.
+const DEFAULT_PRIVACY = `הצהרת פרטיות — BoozeBags
 
-המידע האישי שנמסר (שם מלא, מספר טלפון, פרטי האירוע) ישמש אך ורק לצורך ביצוע ההזמנה ולתיעוד האישור.
+הפרטים שנמסרו יישמרו במאגר המידע של BoozeBags לצורך תפעול ההזמנה בלבד, בהתאם לחוק הגנת הפרטיות.
 המידע לא יועבר לצדדים שלישיים ללא הסכמה מפורשת, למעט לצורך ביצוע השירות עצמו.
-תיעוד האישור (כולל כתובת IP, מזהה מכשיר ופרטי אימות) נשמר לצרכי הוכחה בלבד.
+תיעוד האישור הדיגיטלי (כולל כתובת IP ופרטי אימות) נשמר לצרכי הוכחה בלבד.
 ניתן לפנות אלינו בכל עת לצורך עיון, תיקון או מחיקת הנתונים.`;
+
+/* Fill {{PLACEHOLDER}} values in legal text per order */
+const fillTemplate = (text, snap, total) => {
+  if (!text) return text;
+  return text
+    .replace(/\{\{COUPLE_NAMES\}\}/g, snap?.customerName || '___')
+    .replace(/\{\{EVENT_DATE\}\}/g,   snap?.eventDate ? fmtDate(snap.eventDate) : '___')
+    .replace(/\{\{BAG_COUNT\}\}/g,    snap?.bagCount != null ? String(snap.bagCount) : '___')
+    .replace(/\{\{TOTAL_PRICE\}\}/g,  total ? '₪' + Number(total).toLocaleString('he-IL') : '___');
+};
 
 /* ── Components ── */
 function Collapsible({title, icon, children, initOpen=false, badge}) {
@@ -491,11 +503,11 @@ function ApprovalApp() {
         <div className="card" style={{overflow:'hidden'}}>
           {/* LEGAL REVIEW NOTE: The collapsible sections below contain legal text that MUST be reviewed
               and approved by a licensed Israeli lawyer before being used in binding customer agreements */}
-          <Collapsible title="תנאי ההזמנה והמדיניות" icon="📄" badge="חובה לקרוא">
-            <div className="legal-text">{legalText}</div>
+          <Collapsible title="תנאי ההזמנה והמדיניות" icon="📄" badge="חובה לקרוא" initOpen={true}>
+            <div className="legal-text">{fillTemplate(legalText, snap, total)}</div>
           </Collapsible>
           <Collapsible title="הצהרת פרטיות" icon="🔐" badge="חובה לקרוא">
-            <div className="legal-text">{privText}</div>
+            <div className="legal-text">{fillTemplate(privText, snap, total)}</div>
           </Collapsible>
         </div>
 
