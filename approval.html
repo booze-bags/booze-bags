@@ -51,7 +51,7 @@
     .coll-hdr:hover { background:var(--gray-50); }
     .coll-title { font-size:14px; font-weight:700; color:var(--gray-700); display:flex; align-items:center; gap:8px; }
     .coll-body { padding:0 18px 16px; }
-    .legal-text { font-size:13px; line-height:1.75; color:var(--gray-600); white-space:pre-wrap; }
+    .legal-text { font-size:13px; line-height:1.75; color:var(--gray-600); }
 
     /* Chips */
     .chip { display:inline-block; padding:3px 11px; border-radius:20px; font-size:12px; font-weight:600; background:var(--primary-light); color:var(--primary); margin:3px 2px; }
@@ -74,15 +74,16 @@
     .btn-sm { padding:7px 14px; border-radius:8px; font-size:13px; font-weight:600; cursor:pointer; border:none; font-family:inherit; }
 
     /* Checkboxes */
-    .chk-row { display:flex; align-items:flex-start; gap:14px; padding:16px 12px; border-radius:10px; margin-bottom:6px; cursor:pointer; border:2px solid var(--gray-200); transition:border-color .15s, background .15s; }
+    .chk-row { display:flex; align-items:flex-start; gap:12px; padding:12px 6px; border-radius:8px; cursor:pointer; transition:background .15s; }
     .chk-row:hover { background:var(--gray-50); }
-    .chk-row.chk-checked { border-color:#c4b5fd; background:#faf5ff; }
-    .chk-row.chk-flash { border-color:var(--red); background:#fff5f5; }
-    .chk-box { width:26px; height:26px; border:2.5px solid var(--gray-300); border-radius:7px; flex-shrink:0; display:flex; align-items:center; justify-content:center; transition:all .15s; margin-top:1px; }
+    .chk-box { width:22px; height:22px; border:2px solid var(--gray-400); border-radius:5px; flex-shrink:0; display:flex; align-items:center; justify-content:center; transition:all .15s; margin-top:2px; background:#fff; }
     .chk-box.on { background:var(--primary); border-color:var(--primary); }
     .chk-box.flash { border-color:var(--red); animation:blink .45s 4; }
-    @keyframes blink { 0%,100%{border-color:var(--red);background:#fee2e2} 50%{border-color:transparent;background:transparent} }
+    @keyframes blink { 0%,100%{border-color:var(--red);background:#fee2e2} 50%{border-color:var(--gray-400);background:#fff} }
     .chk-lbl { font-size:15px; line-height:1.6; color:var(--gray-700); }
+    /* Legal text section headings */
+    .legal-sec { font-weight:700; color:var(--gray-800); display:block; margin-top:14px; margin-bottom:2px; }
+    .legal-sec:first-child { margin-top:0; }
 
     /* Sticky footer */
     .sticky { position:fixed; bottom:0; left:0; right:0; background:#fff; border-top:1px solid var(--gray-200); padding:13px 18px 18px; box-shadow:0 -4px 20px rgba(0,0,0,.09); z-index:100; }
@@ -178,6 +179,19 @@ const DEFAULT_PRIVACY = `הצהרת פרטיות — BoozeBags
 תיעוד האישור הדיגיטלי (כולל כתובת IP ופרטי אימות) נשמר לצרכי הוכחה בלבד.
 ניתן לפנות אלינו בכל עת לצורך עיון, תיקון או מחיקת הנתונים.`;
 
+/* Render legal text — numbered section headings bold, rest normal */
+const renderLegal = (text) => {
+  if (!text) return null;
+  return text.split('\n').map((line, i) => {
+    const isHeading = /^\d+\./.test(line.trim()) || /^─+$/.test(line.trim());
+    const isSub = !isHeading && /^[\u05d0-\u05ea\w].+:/.test(line.trim()) && line.trim().indexOf(':') < 20;
+    if (isHeading) return <strong key={i} className="legal-sec">{line}</strong>;
+    if (isSub)     return <span key={i} style={{display:'block',marginTop:8,marginBottom:2}}><strong style={{color:'var(--gray-700)'}}>{line.slice(0,line.indexOf(':')+1)}</strong>{line.slice(line.indexOf(':')+1)}<br/></span>;
+    if (!line.trim()) return <br key={i}/>;
+    return <span key={i} style={{display:'block'}}>{line}</span>;
+  });
+};
+
 /* Fill {{PLACEHOLDER}} values in legal text per order */
 const fillTemplate = (text, snap, total, adv) => {
   if (!text) return text;
@@ -208,11 +222,10 @@ function Collapsible({title, icon, children, initOpen=false, badge}) {
 }
 
 function CheckRow({checked, onChange, flash, children, optional}) {
-  const rowCls = ['chk-row', checked?'chk-checked':'', flash?'chk-flash':''].filter(Boolean).join(' ');
   return (
-    <div className={rowCls} onClick={onChange}>
+    <div className="chk-row" onClick={onChange}>
       <div className={`chk-box${checked?' on':''}${flash?' flash':''}`}>
-        {checked && <svg width="15" height="12" viewBox="0 0 14 11" fill="none">
+        {checked && <svg width="13" height="10" viewBox="0 0 14 11" fill="none">
           <path d="M1 5.5L5 9.5L13 1.5" stroke="#fff" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"/>
         </svg>}
       </div>
@@ -504,10 +517,10 @@ function ApprovalApp() {
           {/* LEGAL REVIEW NOTE: The collapsible sections below contain legal text that MUST be reviewed
               and approved by a licensed Israeli lawyer before being used in binding customer agreements */}
           <Collapsible title="תנאי ההזמנה והמדיניות" icon="📄" badge="חובה לקרוא" initOpen={true}>
-            <div className="legal-text">{fillTemplate(legalText, snap, total, adv)}</div>
+            <div className="legal-text">{renderLegal(fillTemplate(legalText, snap, total, adv))}</div>
           </Collapsible>
-          <Collapsible title="הצהרת פרטיות" icon="🔐" badge="חובה לקרוא">
-            <div className="legal-text">{fillTemplate(privText, snap, total, adv)}</div>
+          <Collapsible title="הצהרת פרטיות" icon="🔐" badge="חובה לקרוא" initOpen={true}>
+            <div className="legal-text">{renderLegal(fillTemplate(privText, snap, total, adv))}</div>
           </Collapsible>
         </div>
 
