@@ -2424,7 +2424,7 @@ function ApprovalModal({order, db, approvalRequests, approvalEvents, onClose}) {
 
   const activeToken  = fresh?.token || active?.token || '';
   const approvalUrl  = activeToken ? `${APPROVAL_BASE_URL}?t=${activeToken}` : '';
-  const waMsg = fresh ? `שלום ${order.customerName} 👋\n\nמצורפת בקשת האישור לשקיות הקוקטייל לאירוע ${order.eventType||''} בתאריך ${fmtDate(order.eventDate)}.\n\n🔗 לאישור ההזמנה:\n${APPROVAL_BASE_URL}?t=${fresh.token}\n\n🔑 קוד האימות שלך: *${fresh.otp}*\n\nהקישור תקף ל-72 שעות.\nלשאלות — ישירות בוואטסאפ 🍹` : '';
+  const waMsg = fresh ? `שלום ${order.customerName} 👋\n\nמצורפת בקשת האישור לשקיות צ'ייסר בעיצוב אישי לאירוע ${order.eventType||''} בתאריך ${fmtDate(order.eventDate)}.\n\n🔗 לאישור ההזמנה:\n${APPROVAL_BASE_URL}?t=${fresh.token}\n\n🔑 קוד האימות שלך: *${fresh.otp}*\n\nהקישור תקף ל-72 שעות.\nלשאלות — ישירות בוואטסאפ 🍹` : '';
 
   const downloadEvidence = (req) => {
     db.ref(`approvals/packages/${req.packageId}`).once('value').then(s=>{

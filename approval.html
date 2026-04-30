@@ -506,7 +506,7 @@ function ApprovalApp() {
             {snap.extras>0 && <div className="detail-row"><span className="detail-lbl">תוספות</span><span className="detail-val">{fmt(snap.extras)}</span></div>}
             <div className="detail-row"><span className="detail-lbl" style={{fontWeight:700}}>סה״כ לתשלום</span><span className="price-big">{fmt(total)}</span></div>
             {adv>0 && <>
-              <div className="detail-row"><span className="detail-lbl">מקדמה ששולמה</span><span className="detail-val" style={{color:'var(--green)'}}>{fmt(adv)}</span></div>
+              <div className="detail-row"><span className="detail-lbl">סכום מקדמה</span><span className="detail-val" style={{color:'var(--green)'}}>{fmt(adv)}</span></div>
               <div className="detail-row"><span className="detail-lbl" style={{fontWeight:700}}>יתרה לתשלום</span><span className="detail-val" style={{fontSize:18,fontWeight:800,color:bal>0?'var(--red)':'var(--green)'}}>{fmt(bal)}</span></div>
             </>}
           </div>
