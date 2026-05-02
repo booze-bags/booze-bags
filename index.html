@@ -2263,9 +2263,11 @@ function OrdersTable({orders, allOrders, filters, onFilter, onEdit, onDelete, on
                 const monthRev=monthOrders.reduce((s,x)=>s+revenue(x),0);
                 rows.push(
                   <tr key={`hdr-${ym}`}>
-                    <td colSpan={COL_COUNT} style={{background:'#eef2ff',borderTop:'2px solid #c7d2fe',borderBottom:'1px solid #c7d2fe',padding:'7px 16px',fontWeight:800,fontSize:13,color:'#4338ca',letterSpacing:0.2}}>
-                      📅 {label}
-                      <span style={{marginRight:16,fontSize:12,fontWeight:400,color:'#6366f1'}}>{monthOrders.length} הזמנות · {monthBags.toLocaleString('he-IL')} שקיות · {fmt(monthRev)}</span>
+                    <td colSpan={COL_COUNT} style={{background:'#eef2ff',borderTop:'2px solid #c7d2fe',borderBottom:'1px solid #c7d2fe',padding:'7px 16px'}}>
+                      <span style={{display:'flex',alignItems:'center',gap:14}}>
+                        <span style={{fontWeight:800,fontSize:13,color:'#4338ca',whiteSpace:'nowrap'}}>📅 {label}</span>
+                        <span style={{fontSize:12,fontWeight:400,color:'#6366f1',whiteSpace:'nowrap'}}>{monthOrders.length} הזמנות · {monthBags.toLocaleString('he-IL')} שקיות · {fmt(monthRev)}</span>
+                      </span>
                     </td>
                   </tr>
                 );
