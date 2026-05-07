@@ -2675,6 +2675,12 @@ function ProductionView({orders, productionQueue, onToggleQueue, onClearQueue, a
     return types.length>0&&types.every(c=>isFilled(order.id,c));
   }).length;
 
+  const filledBagsTotal = selectedOrders.reduce((sum, order) => {
+    const obags=order.bags?(Array.isArray(order.bags)?order.bags:Object.values(order.bags)):[];
+    const opc={};obags.forEach(b=>{const k=normalizeCocktail(b.cocktailB);if(k)opc[k]=(opc[k]||0)+(Number(b.quantity)||0);});
+    return sum + COCKTAIL_TYPES.filter(c=>opc[c]&&isFilled(order.id,c)).reduce((s,c)=>s+(opc[c]||0),0);
+  }, 0);
+
   return (
     <div style={{display:'flex',flexDirection:'column',gap:16}}>
 
@@ -2684,6 +2690,10 @@ function ProductionView({orders, productionQueue, onToggleQueue, onClearQueue, a
           <div className="stat-card"><div className="stat-val">{selectedOrders.length}</div><div className="stat-lbl">אירועים נבחרים</div></div>
           <div className="stat-card"><div className="stat-val">{totalBags.toLocaleString()}</div><div className="stat-lbl">סה״כ שקיות</div></div>
           <div className="stat-card"><div className="stat-val">{totalLiters} ל׳</div><div className="stat-lbl">סה״כ ליטר</div></div>
+          <div className="stat-card" style={{background:filledBagsTotal>0?'#f0fdf4':undefined}}>
+            <div className="stat-val" style={{color:filledBagsTotal>0?'#16a34a':undefined}}>{filledBagsTotal.toLocaleString()}<span style={{fontSize:14,fontWeight:400}}> / {totalBags.toLocaleString()}</span></div>
+            <div className="stat-lbl">שקיות מולאו</div>
+          </div>
           <div className="stat-card" style={{background:filledOrdersCount===selectedOrders.length&&selectedOrders.length>0?'#f0fdf4':undefined}}>
             <div className="stat-val" style={{color:filledOrdersCount===selectedOrders.length&&selectedOrders.length>0?'#16a34a':undefined}}>{filledOrdersCount}/{selectedOrders.length}</div>
             <div className="stat-lbl">הזמנות מולאו</div>
