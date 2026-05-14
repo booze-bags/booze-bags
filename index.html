@@ -3567,6 +3567,17 @@ function WorkspaceView({tasks, onAddTask, onToggleTask, onDeleteTask, weeklySumm
   const [showDone,    setShowDone]    = useState(false);
   const [editId,      setEditId]      = useState(null);
   const [editNotes,   setEditNotes]   = useState('');
+  const [recOpen,     setRecOpen]     = useState(false);
+  const [recording,   setRecording]   = useState(false);
+  const [transcript,  setTranscript]  = useState('');
+  const [interimTxt,  setInterimTxt]  = useState('');
+  const [recDate,     setRecDate]     = useState(()=>new Date().toISOString().slice(0,10));
+  const [recTitle,    setRecTitle]    = useState('');
+  const [summarizing, setSummarizing] = useState(false);
+  const [openaiKey,   setOpenaiKey]   = useState(()=>localStorage.getItem('bb_openai_key')||'');
+  const [showKeyInput,setShowKeyInput]= useState(false);
+  const [keyDraft,    setKeyDraft]    = useState('');
+  const recognitionRef = useRef(null);
 
   const ASSIGNEES = ['יותם','מלאכי','שנינו'];
   const ASSIGNEE_STYLE = {
@@ -3606,6 +3617,64 @@ function WorkspaceView({tasks, onAddTask, onToggleTask, onDeleteTask, weeklySumm
 
   const startEdit = m => { setEditId(m.id); setEditNotes(m.notes); setExpandedId(m.id); };
   const saveEdit  = m => { onAddWeekly({...m, notes:editNotes, _edit:true}); setEditId(null); };
+
+  const startRec = () => {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR) { alert('הדפדפן שלך לא תומך בהקלטה קולית.\nהשתמש ב-Chrome או Edge.'); return; }
+    const r = new SR();
+    r.lang = 'he-IL';
+    r.continuous = true;
+    r.interimResults = true;
+    let final = transcript;
+    r.onresult = e => {
+      let interim = '';
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        if (e.results[i].isFinal) final += e.results[i][0].transcript + ' ';
+        else interim = e.results[i][0].transcript;
+      }
+      setTranscript(final);
+      setInterimTxt(interim);
+    };
+    r.onerror = () => setRecording(false);
+    r.onend   = () => { setRecording(false); setInterimTxt(''); };
+    r.start();
+    recognitionRef.current = r;
+    setRecording(true);
+  };
+
+  const stopRec = () => { recognitionRef.current?.stop(); setRecording(false); setInterimTxt(''); };
+
+  const summarizeRec = async () => {
+    const key = openaiKey.trim();
+    if (!key) { setShowKeyInput(true); setKeyDraft(''); return; }
+    if (!transcript.trim()) return;
+    setSummarizing(true);
+    try {
+      const res = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json','Authorization':`Bearer ${key}`},
+        body: JSON.stringify({
+          model: 'gpt-4o-mini',
+          messages: [
+            {role:'system', content:'אתה עוזר עסקי שמסכם פגישות עסקיות בעברית. כתוב סיכום קצר וברור עם נקודות עיקריות.'},
+            {role:'user',   content:`סכם את הפגישה הבאה. כלול: נקודות עיקריות, החלטות שהתקבלו, משימות להמשך. כתוב בנקודות:\n\n${transcript}`}
+          ]
+        })
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error.message);
+      setTranscript(data.choices[0].message.content);
+    } catch(e) { alert('שגיאה בסיכום: ' + e.message); }
+    setSummarizing(false);
+  };
+
+  const saveRecording = () => {
+    if (!transcript.trim()) return;
+    onAddWeekly({date:recDate, title:recTitle.trim(), notes:transcript.trim()});
+    setRecOpen(false); setTranscript(''); setInterimTxt(''); setRecTitle('');
+  };
+
+  const closeRecorder = () => { stopRec(); setRecOpen(false); };
 
   const TaskRow = ({t, checked}) => {
     const asgn = t.assignee || 'שנינו';
@@ -3683,12 +3752,84 @@ function WorkspaceView({tasks, onAddTask, onToggleTask, onDeleteTask, weeklySumm
 
       {/* ── Weekly Meetings ── */}
       <div style={{display:'flex',flexDirection:'column',gap:14}}>
-        <div style={{display:'flex',alignItems:'center',gap:10}}>
+        <div style={{display:'flex',alignItems:'center',gap:8}}>
           <h2 style={{fontSize:17,fontWeight:800,color:'var(--gray-800)'}}>📋 סיכומי פגישות</h2>
           <button className="btn btn-violet btn-sm" onClick={()=>setAddingMeeting(p=>!p)} style={{marginRight:'auto'}}>
             {addingMeeting?'✕ ביטול':'+ פגישה חדשה'}
           </button>
+          <button className="btn btn-sm" onClick={()=>{setRecOpen(p=>!p);setAddingMeeting(false);}}
+            style={{background:recOpen?'#fee2e2':'#fff1f2',color:'#dc2626',border:'1.5px solid #fca5a5',fontWeight:700}}>
+            🎙️ {recOpen?'סגור':'הקלט'}
+          </button>
         </div>
+
+        {/* ── Recorder Panel ── */}
+        {recOpen&&(
+          <div style={{background:'#fff',borderRadius:'var(--rlg)',padding:18,boxShadow:'var(--shadow-md)',border:'2px solid #fca5a5',display:'flex',flexDirection:'column',gap:12}}>
+            <div style={{display:'flex',alignItems:'center',gap:8}}>
+              <span style={{fontSize:14,fontWeight:800,color:'#dc2626'}}>🎙️ הקלטת פגישה</span>
+              {recording&&<span style={{fontSize:12,color:'#dc2626',fontWeight:600,display:'flex',alignItems:'center',gap:4}}>
+                <span style={{width:8,height:8,borderRadius:'50%',background:'#dc2626',display:'inline-block',animation:'pulse 1s infinite'}}/>
+                מקליט...
+              </span>}
+              <button onClick={()=>{setShowKeyInput(p=>!p);setKeyDraft(openaiKey);}} title="מפתח OpenAI"
+                style={{marginRight:'auto',background:'none',border:'none',cursor:'pointer',fontSize:16,color:'var(--gray-400)'}}>⚙️</button>
+              <button onClick={closeRecorder} style={{background:'none',border:'none',cursor:'pointer',color:'var(--gray-400)',fontSize:18}}>✕</button>
+            </div>
+
+            {showKeyInput&&(
+              <div style={{display:'flex',gap:8,alignItems:'center',background:'var(--gray-50)',borderRadius:'var(--r)',padding:'10px 12px'}}>
+                <span style={{fontSize:12,color:'var(--gray-600)',whiteSpace:'nowrap'}}>מפתח OpenAI:</span>
+                <input value={keyDraft} onChange={e=>setKeyDraft(e.target.value)} type="password"
+                  placeholder="sk-..." style={{flex:1,padding:'6px 10px',borderRadius:'var(--r)',border:'1.5px solid var(--gray-200)',fontSize:13,fontFamily:'inherit'}}/>
+                <button className="btn btn-violet btn-sm" onClick={()=>{localStorage.setItem('bb_openai_key',keyDraft);setOpenaiKey(keyDraft);setShowKeyInput(false);}}>שמור</button>
+              </div>
+            )}
+
+            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:10}}>
+              <div>
+                <label style={{fontSize:12,fontWeight:600,color:'var(--gray-600)',display:'block',marginBottom:4}}>תאריך</label>
+                <input type="date" value={recDate} onChange={e=>setRecDate(e.target.value)}
+                  style={{width:'100%',padding:'8px 12px',borderRadius:'var(--r)',border:'1.5px solid var(--gray-200)',fontSize:14,fontFamily:'inherit'}}/>
+              </div>
+              <div>
+                <label style={{fontSize:12,fontWeight:600,color:'var(--gray-600)',display:'block',marginBottom:4}}>כותרת (רשות)</label>
+                <input value={recTitle} onChange={e=>setRecTitle(e.target.value)} placeholder="נושא הפגישה..."
+                  style={{width:'100%',padding:'8px 12px',borderRadius:'var(--r)',border:'1.5px solid var(--gray-200)',fontSize:14,fontFamily:'inherit'}}/>
+              </div>
+            </div>
+
+            <div style={{position:'relative'}}>
+              <textarea value={transcript+(interimTxt?' …'+interimTxt:'')}
+                onChange={e=>setTranscript(e.target.value)} rows={7}
+                placeholder="לחץ 'התחל הקלטה' — הטקסט יופיע כאן בזמן אמת..."
+                style={{width:'100%',padding:'10px 14px',borderRadius:'var(--r)',fontSize:13,fontFamily:'inherit',resize:'vertical',lineHeight:1.75,
+                  border:`2px solid ${recording?'#dc2626':'var(--gray-200)'}`,outline:'none',color:interimTxt?'var(--gray-500)':'var(--gray-800)'}}/>
+            </div>
+
+            <div style={{display:'flex',gap:8,flexWrap:'wrap',alignItems:'center'}}>
+              {!recording
+                ? <button className="btn btn-sm" style={{background:'#dc2626',color:'#fff',fontWeight:700}} onClick={startRec}>🎙️ התחל הקלטה</button>
+                : <button className="btn btn-sm" style={{background:'var(--gray-700)',color:'#fff',fontWeight:700}} onClick={stopRec}>⏹ עצור</button>
+              }
+              {transcript.trim()&&!recording&&(
+                <button className="btn btn-outline btn-sm" onClick={summarizeRec} disabled={summarizing}
+                  style={{borderColor:'#7c3aed',color:'#7c3aed'}}>
+                  {summarizing?'⏳ מסכם...':'✨ סכם עם AI'}
+                </button>
+              )}
+              {!openaiKey&&transcript.trim()&&!recording&&(
+                <span style={{fontSize:11,color:'var(--gray-400)'}}>ללא מפתח OpenAI — ערוך ידנית ⚙️</span>
+              )}
+              {transcript.trim()&&!recording&&(
+                <button className="btn btn-violet btn-sm" onClick={saveRecording} style={{marginRight:'auto'}}>💾 שמור פגישה</button>
+              )}
+              {transcript.trim()&&(
+                <button onClick={()=>{setTranscript('');setInterimTxt('');}} style={{background:'none',border:'none',cursor:'pointer',color:'var(--gray-400)',fontSize:12,fontFamily:'inherit'}}>נקה</button>
+              )}
+            </div>
+          </div>
+        )}
 
         {addingMeeting&&(
           <form onSubmit={submitMeeting} style={{background:'#fff',borderRadius:'var(--rlg)',padding:16,boxShadow:'var(--shadow)',display:'flex',flexDirection:'column',gap:12}}>
