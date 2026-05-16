@@ -3574,7 +3574,7 @@ function WorkspaceView({tasks, onAddTask, onToggleTask, onDeleteTask, weeklySumm
   const [recDate,     setRecDate]     = useState(()=>new Date().toISOString().slice(0,10));
   const [recTitle,    setRecTitle]    = useState('');
   const [summarizing, setSummarizing] = useState(false);
-  const [openaiKey,   setOpenaiKey]   = useState(()=>localStorage.getItem('bb_claude_key')||'');
+  const [openaiKey,   setOpenaiKey]   = useState(()=>localStorage.getItem('bb_gemini_key')||'');
   const [showKeyInput,setShowKeyInput]= useState(false);
   const [keyDraft,    setKeyDraft]    = useState('');
   const recognitionRef = useRef(null);
@@ -3650,26 +3650,18 @@ function WorkspaceView({tasks, onAddTask, onToggleTask, onDeleteTask, weeklySumm
     if (!transcript.trim()) return;
     setSummarizing(true);
     try {
-      const res = await fetch('https://api.anthropic.com/v1/messages', {
+      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${key}`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-api-key': key,
-          'anthropic-version': '2023-06-01',
-          'anthropic-dangerous-direct-browser-access': 'true'
-        },
+        headers: {'Content-Type':'application/json'},
         body: JSON.stringify({
-          model: 'claude-haiku-4-5',
-          max_tokens: 1024,
-          messages: [{
-            role: 'user',
-            content: `סכם את הפגישה הבאה בעברית. כלול: נקודות עיקריות, החלטות שהתקבלו, משימות להמשך. כתוב בנקודות ברורות:\n\n${transcript}`
-          }]
+          contents: [{parts: [{text:
+            `סכם את הפגישה הבאה בעברית. כלול: נקודות עיקריות, החלטות שהתקבלו, משימות להמשך. כתוב בנקודות ברורות:\n\n${transcript}`
+          }]}]
         })
       });
       const data = await res.json();
       if (data.error) throw new Error(data.error.message || JSON.stringify(data.error));
-      setTranscript(data.content[0].text);
+      setTranscript(data.candidates[0].content.parts[0].text);
     } catch(e) { alert('שגיאה בסיכום: ' + e.message); }
     setSummarizing(false);
   };
@@ -3787,8 +3779,8 @@ function WorkspaceView({tasks, onAddTask, onToggleTask, onDeleteTask, weeklySumm
               <div style={{display:'flex',gap:8,alignItems:'center',background:'var(--gray-50)',borderRadius:'var(--r)',padding:'10px 12px'}}>
                 <span style={{fontSize:12,color:'var(--gray-600)',whiteSpace:'nowrap'}}>מפתח OpenAI:</span>
                 <input value={keyDraft} onChange={e=>setKeyDraft(e.target.value)} type="password"
-                  placeholder="sk-ant-..." style={{flex:1,padding:'6px 10px',borderRadius:'var(--r)',border:'1.5px solid var(--gray-200)',fontSize:13,fontFamily:'inherit'}}/>
-                <button className="btn btn-violet btn-sm" onClick={()=>{localStorage.setItem('bb_claude_key',keyDraft);setOpenaiKey(keyDraft);setShowKeyInput(false);}}>שמור</button>
+                  placeholder="AIza..." style={{flex:1,padding:'6px 10px',borderRadius:'var(--r)',border:'1.5px solid var(--gray-200)',fontSize:13,fontFamily:'inherit'}}/>
+                <button className="btn btn-violet btn-sm" onClick={()=>{localStorage.setItem('bb_gemini_key',keyDraft);setOpenaiKey(keyDraft);setShowKeyInput(false);}}>שמור</button>
               </div>
             )}
 
@@ -3825,7 +3817,7 @@ function WorkspaceView({tasks, onAddTask, onToggleTask, onDeleteTask, weeklySumm
                 </button>
               )}
               {!openaiKey&&transcript.trim()&&!recording&&(
-                <span style={{fontSize:11,color:'var(--gray-400)'}}>ללא מפתח Claude — ערוך ידנית ⚙️</span>
+                <span style={{fontSize:11,color:'var(--gray-400)'}}>ללא מפתח Gemini — ערוך ידנית ⚙️</span>
               )}
               {transcript.trim()&&!recording&&(
                 <button className="btn btn-violet btn-sm" onClick={saveRecording} style={{marginRight:'auto'}}>💾 שמור פגישה</button>
