@@ -4017,6 +4017,17 @@ function App() {
     return () => { connRef.off(); ordersRef.off(); settingsRef.off(); txRef.off(); calRef.off(); remRef.off(); pqRef.off(); fillRef.off(); tasksRef2.off(); wsRef.off(); arRef.off(); aeRef.off(); delRef.off(); meRef.off(); msRef.off(); feRef.off(); };
   }, [db]);
 
+  // Auto-complete: delivered orders whose event date has passed → completed
+  useEffect(() => {
+    if (!db || orders.length === 0) return;
+    const today = new Date().toISOString().slice(0, 10);
+    orders.forEach(o => {
+      if (o.status === 'delivered' && o.eventDate && o.eventDate < today) {
+        db.ref('orders').child(o.id).update({ status: 'completed' });
+      }
+    });
+  }, [orders, db]);
+
   const handleUpdateSettings = (newSettings) => {
     if (!db) return;
     setSettings(newSettings);
