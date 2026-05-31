@@ -4073,6 +4073,29 @@ function App() {
     if (!db) return;
     const update = typeof fieldOrData === 'object' ? fieldOrData : {[fieldOrData]: value};
     db.ref('orders').child(id).update(update);
+
+    // Auto-add income transaction when advance or balance is marked as paid
+    const field = typeof fieldOrData === 'string' ? fieldOrData : null;
+    if ((field === 'advancePaid' || field === 'balancePaid') && value === true) {
+      const order = orders.find(o => o.id === id);
+      if (order) {
+        const total   = (Number(order.packagePrice)||0) + (Number(order.extras)||0);
+        const adv     = Number(order.advanceAmount) || 0;
+        const amount  = field === 'advancePaid' ? adv : Math.max(0, total - adv);
+        const label   = field === 'advancePaid' ? 'מקדמה' : 'יתרה';
+        if (amount > 0) {
+          db.ref('transactions').push({
+            type: 'income',
+            description: `${label} — ${order.customerName}`,
+            amount,
+            who: 'בוזבאגס',
+            date: new Date().toISOString().slice(0, 10),
+            createdAt: new Date().toISOString(),
+            orderId: id,
+          });
+        }
+      }
+    }
   };
 
   const handleAddTransaction = (data) => {
