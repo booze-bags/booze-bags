@@ -1589,12 +1589,14 @@ function BagModal({bag, bagIdx, orderId, orders, onSave, onClose}) {
 
 // ── Bags View ──
 function BagsView({orders, onUpdateBag, onAddBag}) {
-  const [filter,      setFilter]      = useState('');
-  const [filterFrom,  setFilterFrom]  = useState('');
-  const [filterTo,    setFilterTo]    = useState('');
-  const [showModal,   setShowModal]   = useState(false);
-  const [editingBag,  setEditingBag]  = useState(null);
-  const [exporting,   setExporting]   = useState(false);
+  const [filter,        setFilter]        = useState('');
+  const [filterFrom,    setFilterFrom]    = useState('');
+  const [filterTo,      setFilterTo]      = useState('');
+  const [showModal,     setShowModal]     = useState(false);
+  const [editingBag,    setEditingBag]    = useState(null);
+  const [exporting,     setExporting]     = useState(false);
+  const [exportSel,     setExportSel]     = useState(new Set());
+  const [showExportSel, setShowExportSel] = useState(false);
 
   const allBags = useMemo(() => {
     const result = [];
@@ -1648,14 +1650,31 @@ function BagsView({orders, onUpdateBag, onAddBag}) {
 
   const customers = useMemo(()=>[...new Set(dateFilteredBags.map(b=>b.customerName).filter(Boolean))],[dateFilteredBags]);
 
+  // Orders with bags in the current date range, for export selection
+  const exportableOrders = useMemo(() => {
+    const map = {};
+    dateFilteredBags.forEach(b => {
+      if (!map[b.orderId]) map[b.orderId] = {id:b.orderId, customerName:b.customerName, eventDate:b.eventDate, count:0};
+      map[b.orderId].count++;
+    });
+    return Object.values(map).sort((a,b)=>(a.eventDate||'').localeCompare(b.eventDate||''));
+  }, [dateFilteredBags]);
+
+  const toggleExportOrder = id => setExportSel(prev => { const n=new Set(prev); n.has(id)?n.delete(id):n.add(id); return n; });
+  const selectAllExport   = () => setExportSel(new Set(exportableOrders.map(o=>o.id)));
+  const clearExport       = () => setExportSel(new Set());
+
+  // Bags that will actually be exported (all if nothing selected)
+  const bagsForExport = exportSel.size > 0 ? dateFilteredBags.filter(b=>exportSel.has(b.orderId)) : dateFilteredBags;
+
   const exportToFactory = async () => {
     setExporting(true);
     try {
       const today = new Date().toISOString().slice(0,10);
       const fmtD = d => d ? new Date(d).toLocaleDateString('he-IL',{day:'2-digit',month:'2-digit',year:'numeric'}) : '';
 
-      // מיין: תאריך אירוע → לקוח → שקית (מסונן לפי טווח תאריכים)
-      const rows = [...dateFilteredBags].sort((a,b)=>{
+      // מיין: תאריך אירוע → לקוח → שקית (מסונן לפי בחירה / טווח תאריכים)
+      const rows = [...bagsForExport].sort((a,b)=>{
         const dc=(a.eventDate||'').localeCompare(b.eventDate||''); if(dc) return dc;
         const nc=(a.customerName||'').localeCompare(b.customerName||''); if(nc) return nc;
         return (Number(a.bagNum)||0)-(Number(b.bagNum)||0);
@@ -1665,9 +1684,10 @@ function BagsView({orders, onUpdateBag, onAddBag}) {
       const zip = new JSZip();
       const imgFolder = zip.folder('תמונות');
 
-      // תמונות גב לפי הזמנה
+      // תמונות גב לפי הזמנה (רק הזמנות שנבחרו)
+      const exportOrderIds = new Set(bagsForExport.map(b=>b.orderId));
       const backImgNames = {};
-      orders.forEach(ord => {
+      orders.filter(ord=>exportOrderIds.has(ord.id)).forEach(ord => {
         if (ord.backImage && ord.backImage.startsWith('data:')) {
           const ext = ord.backImage.includes('image/png') ? 'png' : 'jpg';
           const safe = (ord.customerName||ord.id).replace(/[^א-תa-zA-Z0-9\-]/g,'_');
@@ -1858,6 +1878,42 @@ document.addEventListener('keydown',function(e){if(e.key==='Escape')closeLb();})
           </div>
         </>
       )}
+      {/* ── Export order selection panel ── */}
+      <div style={{background:'#fff',borderRadius:'var(--rlg)',boxShadow:'var(--shadow)',overflow:'hidden'}}>
+        <div onClick={()=>setShowExportSel(p=>!p)}
+          style={{padding:'12px 18px',cursor:'pointer',display:'flex',alignItems:'center',gap:12,userSelect:'none',borderBottom:showExportSel?'1px solid var(--gray-100)':'none'}}>
+          <span style={{fontSize:14,fontWeight:700,color:'var(--gray-800)'}}>📤 בחר הזמנות לייצוא למפעל</span>
+          {exportSel.size>0 && <span style={{fontSize:12,fontWeight:700,color:'#fff',background:'var(--primary)',borderRadius:99,padding:'2px 9px'}}>{exportSel.size} נבחרו</span>}
+          <span style={{marginRight:'auto',fontSize:12,color:'var(--gray-400)'}}>{showExportSel?'▴':'▾'}</span>
+        </div>
+        {showExportSel && (
+          <div style={{padding:16,display:'flex',flexDirection:'column',gap:10}}>
+            <div style={{display:'flex',gap:8,alignItems:'center',marginBottom:4}}>
+              <button className="btn btn-outline btn-sm" onClick={selectAllExport}>בחר הכל</button>
+              <button className="btn btn-outline btn-sm" onClick={clearExport}>נקה בחירה</button>
+              <span style={{fontSize:12,color:'var(--gray-500)',marginRight:'auto'}}>
+                {exportSel.size===0 ? 'לא נבחר — יוצאו כל השקיות' : `יוצאו ${bagsForExport.length} שקיות מתוך ${dateFilteredBags.length}`}
+              </span>
+            </div>
+            <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(220px,1fr))',gap:8}}>
+              {exportableOrders.map(o=>(
+                <label key={o.id} onClick={e=>e.stopPropagation()}
+                  style={{display:'flex',alignItems:'center',gap:10,padding:'10px 14px',borderRadius:'var(--r)',cursor:'pointer',
+                    background:exportSel.has(o.id)?'var(--primary-light)':'var(--gray-50)',
+                    border:`1.5px solid ${exportSel.has(o.id)?'var(--primary)':'var(--gray-200)'}`,transition:'all .15s'}}>
+                  <input type="checkbox" checked={exportSel.has(o.id)} onChange={()=>toggleExportOrder(o.id)}
+                    style={{width:17,height:17,accentColor:'var(--primary)',flexShrink:0,cursor:'pointer'}}/>
+                  <div style={{minWidth:0}}>
+                    <div style={{fontWeight:700,fontSize:13,color:'var(--gray-800)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{o.customerName}</div>
+                    <div style={{fontSize:11,color:'var(--gray-500)',marginTop:1}}>{fmtDate(o.eventDate)} · {o.count} שקיות</div>
+                  </div>
+                </label>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
       <div className="filters" style={{flexWrap:'wrap',rowGap:8}}>
         <span style={{fontSize:13,fontWeight:700,color:'var(--gray-600)'}}>סינון:</span>
         <span style={{fontSize:12,color:'var(--gray-500)'}}>לקוח:</span>
@@ -1876,7 +1932,9 @@ document.addEventListener('keydown',function(e){if(e.key==='Escape')closeLb();})
         <span className="f-count">{filtered.length} שקיות{(filterFrom||filterTo)&&dateFilteredBags.length!==allBags.length?` (מתוך ${allBags.length})`:''}</span>
         <div style={{marginRight:'auto',display:'flex',gap:8}}>
           <button className="btn btn-pri" style={{fontSize:13,padding:'6px 14px'}} onClick={openAdd}>+ הוסף שקית</button>
-          <button className="btn btn-outline" style={{fontSize:13,padding:'6px 14px',color:'var(--green)',borderColor:'var(--green)',fontWeight:700,opacity:exporting?0.6:1}} onClick={exportToFactory} disabled={exporting} title="ייצוא ל-ZIP (Excel + תמונות) לשליחה למפעל">{exporting?'⏳ מכין…':'📤 ייצוא למפעל'}</button>
+          <button className="btn btn-outline" style={{fontSize:13,padding:'6px 14px',color:'var(--green)',borderColor:'var(--green)',fontWeight:700,opacity:exporting?0.6:1}} onClick={exportToFactory} disabled={exporting} title="ייצוא ל-ZIP (Excel + תמונות) לשליחה למפעל">
+            {exporting?'⏳ מכין…':`📤 ייצוא למפעל${exportSel.size>0?` (${bagsForExport.length} שקיות)`:''}`}
+          </button>
         </div>
       </div>
       <div className="card">
