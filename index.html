@@ -345,6 +345,7 @@
     .tag-yotam { background:#dbeafe; color:#1e3a8a; }
     .tag-tal { background:#d1fae5; color:#065f46; }
     .tag-maya { background:#fef3c7; color:#92400e; }
+    .tag-inbar { background:#ede9fe; color:#5b21b6; }
     .tag-none { background:var(--gray-100); color:var(--gray-400); }
 
     /* Leaderboard */
@@ -454,7 +455,7 @@ const DELIVERY_STATUSES = ['ממתין', 'בדרך', 'הגיע', 'ביטל'];
 const DELIVERY_STATUS_CLASS = { 'ממתין':'del-waiting', 'בדרך':'del-way', 'הגיע':'del-arrived', 'ביטל':'del-cancelled' };
 const BAG_EMPTY = {bagNum:1, phraseA:'', imageNumA:'', namesB:'', cocktailB:'', quantity:100, needsDate:false};
 const TEAM = ['בוזבאגס', 'מלאכי', 'יותם'];
-const TEAM_CLOSER = ['מלאכי', 'יותם', 'טל', 'מאיה'];
+const TEAM_CLOSER = ['מלאכי', 'יותם', 'טל', 'מאיה', 'ענבר'];
 const DOW_HE = ['א','ב','ג','ד','ה','ו','ש'];
 
 // ── Approval constants & helpers ──
@@ -497,8 +498,8 @@ const StatusLabel = {
   open:'פתוחה','in-progress':'בטיפול',closed:'סגורה'
 };
 function Badge({status}) { return <span className={BadgeClass[status]||'badge'}>{StatusLabel[status]||status}</span>; }
-const TEAM_TAG_CLASS = { 'מלאכי':'tag-malachi', 'יותם':'tag-yotam', 'טל':'tag-tal', 'מאיה':'tag-maya' };
-const TEAM_CLOSER_COLOR = { 'מלאכי':'#db2777', 'יותם':'#2563eb', 'טל':'#059669', 'מאיה':'#d97706' };
+const TEAM_TAG_CLASS = { 'מלאכי':'tag-malachi', 'יותם':'tag-yotam', 'טל':'tag-tal', 'מאיה':'tag-maya', 'ענבר':'tag-inbar' };
+const TEAM_CLOSER_COLOR = { 'מלאכי':'#db2777', 'יותם':'#2563eb', 'טל':'#059669', 'מאיה':'#d97706', 'ענבר':'#7c3aed' };
 function TeamTag({who}) {
   if (!who) return <span className="team-tag tag-none">—</span>;
   return <span className={`team-tag ${TEAM_TAG_CLASS[who]||'tag-none'}`}>{who}</span>;
@@ -1250,7 +1251,7 @@ function TransactionsView({transactions, onAdd, onDelete, onUpdate, fixedExpense
 
           {/* חשבון */}
           <div style={{display:'flex',borderRadius:8,overflow:'hidden',border:'1px solid var(--gray-200)'}}>
-            {[['all','הכל'],['בוזבאגס','🍹 בוזבאגס'],['מלאכי','מלאכי'],['יותם','יותם']].map(([v,lbl])=>(
+            {[['all','הכל'],['בוזבאגס','🍹 בוזבאגס'],['מלאכי','מלאכי'],['יותם','יותם'],['ענבר','ענבר']].map(([v,lbl])=>(
               <button key={v} onClick={()=>setTxWho(v)} style={{padding:'5px 11px',fontSize:12,fontWeight:txWho===v?700:400,background:txWho===v?(v==='בוזבאגס'?'#4f46e5':v==='מלאכי'?'#db2777':'#2563eb'):'#fff',color:txWho===v?'#fff':'var(--gray-600)',border:'none',cursor:'pointer',borderLeft:'1px solid var(--gray-200)'}}>
                 {lbl}
               </button>
