@@ -3612,6 +3612,185 @@ function PinGate({onUnlock}) {
   );
 }
 
+// ── InbarView ──
+function InbarView({orders}) {
+  const BASE = 1000;
+  const fmt = n => '₪' + Math.round(Number(n)).toLocaleString('he-IL');
+
+  const getBonus = n => n>=25?2500:n>=20?1500:n>=15?800:n>=10?300:0;
+  const getNextTier = n => {
+    if (n<10) return {target:10,bonus:300};
+    if (n<15) return {target:15,bonus:800};
+    if (n<20) return {target:20,bonus:1500};
+    if (n<25) return {target:25,bonus:2500};
+    return null;
+  };
+  const fmtMo = ym => {
+    if (!ym) return '';
+    const [y,m]=ym.split('-');
+    return `${['ינואר','פברואר','מרץ','אפריל','מאי','יוני','יולי','אוגוסט','ספטמבר','אוקטובר','נובמבר','דצמבר'][Number(m)-1]} ${y}`;
+  };
+
+  const inbarOrders = useMemo(()=>orders.filter(o=>o.closedBy==='ענבר'),[orders]);
+
+  const byMonth = useMemo(()=>{
+    const map={};
+    inbarOrders.forEach(o=>{
+      const mo=(o.createdAt||o.eventDate||'').slice(0,7);
+      if(!mo) return;
+      if(!map[mo]) map[mo]=[];
+      map[mo].push(o);
+    });
+    return map;
+  },[inbarOrders]);
+
+  const months = Object.keys(byMonth).sort().reverse();
+  const [selMonth, setSelMonth] = useState(()=>months[0]||new Date().toISOString().slice(0,7));
+
+  // Keep selMonth valid when months list changes
+  React.useEffect(()=>{ if(months.length&&!byMonth[selMonth]) setSelMonth(months[0]); },[months]);
+
+  const monthOrders = byMonth[selMonth]||[];
+  const closings    = monthOrders.filter(o=>o.advancePaid);
+  const pending     = monthOrders.filter(o=>!o.advancePaid);
+  const count       = closings.length;
+  const revenue     = closings.reduce((s,o)=>s+(Number(o.packagePrice)||0)+(Number(o.extras)||0),0);
+  const rate        = count>=10?0.10:0.08;
+  const commission  = revenue*rate;
+  const bonus       = getBonus(count);
+  const total       = BASE+commission+bonus;
+  const nextTier    = getNextTier(count);
+
+  return (
+    <div style={{display:'flex',flexDirection:'column',gap:20}}>
+
+      {/* Header */}
+      <div style={{background:'linear-gradient(135deg,#7c3aed,#4338ca)',borderRadius:'var(--rlg)',padding:'20px 24px',color:'#fff',display:'flex',alignItems:'center',gap:16}}>
+        <div>
+          <div style={{fontSize:22,fontWeight:800}}>💜 ענבר — מחשבון שכר</div>
+          <div style={{fontSize:13,opacity:.8,marginTop:3}}>שכר בסיס ₪1,000 · עמלה 8% / 10% · בונוסים חודשיים</div>
+        </div>
+        <div style={{marginRight:'auto',background:'rgba(255,255,255,.15)',borderRadius:'var(--r)',padding:'12px 20px',textAlign:'center'}}>
+          <div style={{fontSize:26,fontWeight:800}}>{fmt(total)}</div>
+          <div style={{fontSize:12,opacity:.85}}>סה״כ {fmtMo(selMonth)}</div>
+        </div>
+      </div>
+
+      {/* Month tabs */}
+      {months.length===0
+        ? <div style={{textAlign:'center',color:'var(--gray-400)',fontSize:14,padding:20}}>עדיין אין הזמנות של ענבר</div>
+        : <div style={{display:'flex',gap:8,flexWrap:'wrap'}}>
+            {months.map(m=>(
+              <button key={m} onClick={()=>setSelMonth(m)}
+                style={{padding:'6px 16px',borderRadius:99,border:'none',cursor:'pointer',fontFamily:'inherit',fontSize:13,fontWeight:600,transition:'all .15s',
+                  background:selMonth===m?'var(--primary)':'#fff',
+                  color:selMonth===m?'#fff':'var(--gray-600)',
+                  boxShadow:selMonth===m?'var(--shadow-md)':'var(--shadow)'}}>
+                {fmtMo(m)}
+              </button>
+            ))}
+          </div>
+      }
+
+      {/* Stats row */}
+      <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(140px,1fr))',gap:12}}>
+        <div className="stat-card"><div className="stat-val">{count}</div><div className="stat-lbl">סגירות (מקדמה שולמה)</div></div>
+        <div className="stat-card"><div className="stat-val">{pending.length}</div><div className="stat-lbl">ממתינות למקדמה</div></div>
+        <div className="stat-card"><div className="stat-val">{fmt(revenue)}</div><div className="stat-lbl">מחזור מכירות</div></div>
+        <div className="stat-card" style={{background:'#ede9fe'}}>
+          <div className="stat-val" style={{color:'var(--primary)'}}>{rate*100}%</div>
+          <div className="stat-lbl">אחוז עמלה {count>=10?'(10 סגירות+)':'(עד 10 סגירות)'}</div>
+        </div>
+        <div className="stat-card" style={{background:'#ede9fe'}}>
+          <div className="stat-val" style={{color:'var(--primary)'}}>{fmt(commission)}</div>
+          <div className="stat-lbl">עמלה</div>
+        </div>
+        <div className="stat-card" style={{background:bonus>0?'#fef3c7':undefined}}>
+          <div className="stat-val" style={{color:bonus>0?'#d97706':undefined}}>{fmt(bonus)}</div>
+          <div className="stat-lbl">בונוס</div>
+        </div>
+      </div>
+
+      {/* Progress to next bonus tier */}
+      {nextTier&&(
+        <div style={{background:'#fff',borderRadius:'var(--rlg)',padding:'16px 20px',boxShadow:'var(--shadow)'}}>
+          <div style={{display:'flex',justifyContent:'space-between',marginBottom:8,alignItems:'center'}}>
+            <span style={{fontSize:13,fontWeight:700,color:'var(--gray-700)'}}>
+              🎯 עוד {nextTier.target-count} סגירות לבונוס של {fmt(nextTier.bonus)}
+            </span>
+            <span style={{fontSize:13,color:'var(--gray-500)'}}>{count} / {nextTier.target}</span>
+          </div>
+          <div style={{background:'var(--gray-100)',borderRadius:99,height:10,overflow:'hidden'}}>
+            <div style={{background:'linear-gradient(90deg,#7c3aed,#6366f1)',height:'100%',borderRadius:99,
+              width:`${Math.min(100,(count/nextTier.target)*100)}%`,transition:'width .4s'}}/>
+          </div>
+          <div style={{display:'flex',justifyContent:'space-between',marginTop:6,fontSize:11,color:'var(--gray-400)'}}>
+            {[10,15,20,25].map(t=>(
+              <span key={t} style={{fontWeight:t===nextTier.target?700:400,color:count>=t?'var(--primary)':'var(--gray-300)'}}>
+                {t} ← {fmt(getBonus(t))}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Salary breakdown */}
+      <div style={{background:'#fff',borderRadius:'var(--rlg)',padding:'18px 22px',boxShadow:'var(--shadow)'}}>
+        <div style={{fontWeight:800,fontSize:14,color:'var(--gray-700)',marginBottom:12}}>פירוט שכר — {fmtMo(selMonth)}</div>
+        {[
+          ['שכר בסיס',`${fmt(BASE)}`,'#6366f1'],
+          [`עמלה ${rate*100}% על ${fmt(revenue)}`,`${fmt(commission)}`,'#7c3aed'],
+          [bonus>0?`בונוס (${count} סגירות)`:'בונוס',`${fmt(bonus)}`, bonus>0?'#d97706':'var(--gray-300)'],
+        ].map(([lbl,val,color])=>(
+          <div key={lbl} style={{display:'flex',justifyContent:'space-between',fontSize:14,padding:'8px 0',borderBottom:'1px solid var(--gray-100)'}}>
+            <span style={{color:'var(--gray-600)'}}>{lbl}</span>
+            <span style={{fontWeight:700,color}}>{val}</span>
+          </div>
+        ))}
+        <div style={{display:'flex',justifyContent:'space-between',fontSize:17,fontWeight:800,paddingTop:10,marginTop:2}}>
+          <span>סה״כ לתשלום</span>
+          <span style={{color:'#059669'}}>{fmt(total)}</span>
+        </div>
+      </div>
+
+      {/* Orders table */}
+      <div className="card">
+        <div className="card-hdr">
+          <span className="card-title">📋 הזמנות של ענבר — {fmtMo(selMonth)}</span>
+          <span style={{fontSize:12,color:'var(--gray-400)'}}>{monthOrders.length} הזמנות</span>
+        </div>
+        {monthOrders.length===0
+          ? <div className="empty"><div className="empty-icon">📭</div><p className="empty-txt">אין הזמנות בחודש זה</p></div>
+          : <div className="tbl-wrap">
+              <table>
+                <thead><tr><th>לקוח</th><th>תאריך אירוע</th><th>מחיר כולל</th><th>מקדמה</th><th>סטטוס</th><th>עמלה</th></tr></thead>
+                <tbody>
+                  {monthOrders.map(o=>{
+                    const rev=(Number(o.packagePrice)||0)+(Number(o.extras)||0);
+                    const comm=o.advancePaid?rev*rate:0;
+                    return (
+                      <tr key={o.id} style={{background:o.advancePaid?'#f0fdf4':'#fff'}}>
+                        <td className="td-b">{o.customerName}</td>
+                        <td>{fmtDate(o.eventDate)}</td>
+                        <td style={{fontWeight:600}}>{fmt(rev)}</td>
+                        <td>{fmt(Number(o.advanceAmount)||0)}</td>
+                        <td>{o.advancePaid
+                          ? <span style={{color:'#059669',fontWeight:700,fontSize:13}}>✅ שולמה מקדמה</span>
+                          : <span style={{color:'#d97706',fontWeight:600,fontSize:13}}>⏳ ממתין למקדמה</span>}
+                        </td>
+                        <td style={{fontWeight:700,color:o.advancePaid?'var(--primary)':'var(--gray-300)'}}>{o.advancePaid?fmt(comm):'—'}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+        }
+      </div>
+    </div>
+  );
+}
+
 // ── WorkspaceView ──
 function WorkspaceView({tasks, onAddTask, onToggleTask, onDeleteTask, weeklySummaries, onAddWeekly, onDeleteWeekly}) {
   const [newTask,       setNewTask]       = useState('');
@@ -4399,6 +4578,7 @@ function App() {
     {id:'finance',   label:'💳  הוצאות/הכנסות'},
     {id:'docs',      label:'📄  מסמכים'},
     {id:'workspace', label:'📌  משימות ופגישות'},
+    {id:'inbar',     label:'💜  שכר ענבר'},
   ];
 
   return (
@@ -4438,6 +4618,7 @@ function App() {
         {tab==='delivery'  && <DeliveryView orders={orders} onQuickUpdate={handleQuickUpdate}/>}
         {tab==='finance'   && <TransactionsView transactions={transactions} onAdd={handleAddTransaction} onDelete={handleDeleteTransaction} onUpdate={handleUpdateTransaction} fixedExpenses={fixedExpenses} onAddFixedExpense={handleAddFixedExpense} onDeleteFixedExpense={handleDeleteFixedExpense}/>}
         {tab==='docs'      && <DocsView orders={orders} onEdit={handleEdit}/>}
+        {tab==='inbar'     && <InbarView orders={orders}/>}
         {tab==='workspace' && <WorkspaceView tasks={tasks} onAddTask={handleAddTask} onToggleTask={handleToggleTask} onDeleteTask={handleDeleteTask} weeklySummaries={weeklySummaries} onAddWeekly={handleAddWeekly} onDeleteWeekly={handleDeleteWeekly}/>}
       </main>
 
