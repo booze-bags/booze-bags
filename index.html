@@ -2456,7 +2456,7 @@ function ApprovalModal({order, db, approvalRequests, approvalEvents, onClose}) {
       // 6. Generate token + OTP
       const token  = genToken();
       const otp    = genOTP();
-      const expiry = new Date(Date.now()+72*3600*1000).toISOString();
+      const expiry = new Date(Date.now()+30*24*3600*1000).toISOString();
 
       // 7. Write request
       const reqRef = db.ref('approvals/requests').push();
@@ -2485,7 +2485,7 @@ function ApprovalModal({order, db, approvalRequests, approvalEvents, onClose}) {
 
   const activeToken  = fresh?.token || active?.token || '';
   const approvalUrl  = activeToken ? `${APPROVAL_BASE_URL}?t=${activeToken}` : '';
-  const waMsg = fresh ? `שלום ${order.customerName} 👋\n\nמצורפת בקשת האישור לשקיות צ'ייסר בעיצוב אישי לאירוע ${order.eventType||''} בתאריך ${fmtDate(order.eventDate)}.\n\n🔗 לאישור ההזמנה:\n${APPROVAL_BASE_URL}?t=${fresh.token}\n\n🔑 קוד האימות שלך: *${fresh.otp}*\n\nהקישור תקף ל-72 שעות.\nלשאלות — ישירות בוואטסאפ 🍹` : '';
+  const waMsg = fresh ? `שלום ${order.customerName} 👋\n\nמצורפת בקשת האישור לשקיות צ'ייסר בעיצוב אישי לאירוע ${order.eventType||''} בתאריך ${fmtDate(order.eventDate)}.\n\n🔗 לאישור ההזמנה:\n${APPROVAL_BASE_URL}?t=${fresh.token}\n\n🔑 קוד האימות שלך: *${fresh.otp}*\n\nהקישור תקף ל-30 יום.\nלשאלות — ישירות בוואטסאפ 🍹` : '';
 
   const downloadEvidence = (req) => {
     db.ref(`approvals/packages/${req.packageId}`).once('value').then(s=>{
@@ -2619,7 +2619,7 @@ table{width:100%;border-collapse:collapse;margin:12px 0;}td,th{border:1px solid 
                   </div>
 
                   <div style={{marginTop:10,fontSize:11,color:'var(--gray-400)'}}>
-                    Hash: <span style={{fontFamily:'monospace'}}>{fresh.hash}</span> · תוקף 72 שעות
+                    Hash: <span style={{fontFamily:'monospace'}}>{fresh.hash}</span> · תוקף 30 יום
                   </div>
                 </div>
               </div>
